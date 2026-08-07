@@ -501,11 +501,13 @@ switchBtn.addEventListener('click', switchFilter);
 shutterBtn.addEventListener('click', capturePhoto);
 
 // ---------- R1 hardware controls ----------
-// R1 creations expose the scroll wheel and side button as DOM events.
-// Wired as best-effort extras; touch controls above remain the primary path.
+// The scroll wheel is the R1's own physical control for spinning the
+// rotating camera to face you — left free here (in the live view) so it
+// isn't fought over. It's still used to browse the gallery, where the
+// camera isn't in view anyway. Filters are switched only via the on-screen
+// switch button, never the wheel.
 function onScroll(delta) {
   if (appView === 'gallery') galleryNav(delta);
-  else if (appView === 'live') switchFilter();
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
@@ -516,8 +518,8 @@ window.addEventListener('sideClick', () => {
 // keyboard fallback, useful when testing in a normal browser
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); capturePhoto(); }
-  else if (e.code === 'ArrowLeft') onScroll(-1);
-  else if (e.code === 'ArrowRight') onScroll(1);
+  else if (e.code === 'ArrowLeft') { if (appView === 'gallery') galleryNav(-1); else switchFilter(); }
+  else if (e.code === 'ArrowRight') { if (appView === 'gallery') galleryNav(1); else switchFilter(); }
   else if (e.key === 'r') rotateBtn.click();
   else if (e.key === 'Escape') { if (appView === 'gallery') closeGallery(); }
 });
