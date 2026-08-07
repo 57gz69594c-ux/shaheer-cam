@@ -77,6 +77,9 @@ function emailPhoto(dataUrl, btn) {
 const rotCanvas = document.createElement('canvas');
 const rotCtx = rotCanvas.getContext('2d');
 
+// the live camera+mic MediaStream, kept around so recording can pull an audio track from it
+let cameraStream = null;
+
 // ---------- film looks ----------
 // Each preset emulates a real film stock: a base color grade (css filter),
 // a black-lift (film shadows are never pure black), a split-tone color cast,
@@ -530,7 +533,14 @@ let recordAutoStopTimer = null;
 
 function pickVideoMimeType() {
   if (!window.MediaRecorder) return '';
-  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+    'video/mp4',
+  ];
   for (const c of candidates) {
     if (MediaRecorder.isTypeSupported(c)) return c;
   }
@@ -562,6 +572,10 @@ function startRecording() {
   recordCanvas.width = rotCanvas.width;
   recordCanvas.height = rotCanvas.height;
   const stream = recordCanvas.captureStream(24);
+  if (cameraStream) {
+    const audioTrack = cameraStream.getAudioTracks()[0];
+    if (audioTrack) stream.addTrack(audioTrack);
+  }
   recordedChunks = [];
   try {
     mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -752,25 +766,30 @@ function showError(msg) {
   errorBox.classList.remove('hidden');
 }
 
+// Tries camera+mic first (needed so video recordings have sound); falls back
+// to video-only if the mic is denied/unavailable, then to any camera at all.
+const CAMERA_ATTEMPTS = [
+  { video: { facingMode: 'environment' }, audio: true },
+  { video: true, audio: true },
+  { video: { facingMode: 'environment' }, audio: false },
+  { video: true, audio: false },
+];
+
 async function initCamera() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-      audio: false,
-    });
-    video.srcObject = stream;
-    await video.play();
-    requestAnimationFrame(renderLoop);
-  } catch (err) {
+  let lastErr = null;
+  for (const constraints of CAMERA_ATTEMPTS) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      cameraStream = stream;
       video.srcObject = stream;
       await video.play();
       requestAnimationFrame(renderLoop);
-    } catch (err2) {
-      showError('Camera access failed: ' + err2.message);
+      return;
+    } catch (err) {
+      lastErr = err;
     }
   }
+  showError('Camera access failed: ' + (lastErr ? lastErr.message : 'unknown error'));
 }
 
 initCamera();
