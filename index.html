@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Shaheer Cam</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- live camera view -->
+    <div id="liveView">
+      <canvas id="preview"></canvas>
+      <video id="cam" playsinline muted autoplay></video>
+
+      <div id="filterLabel">35mm</div>
+      <button id="rotateBtn" title="fix orientation">⟳</button>
+
+      <div id="controls">
+        <button id="switchBtn" aria-label="switch film">◀ ▶</button>
+        <button id="shutterBtn" aria-label="capture"></button>
+        <div id="spacer"></div>
+      </div>
+    </div>
+
+    <!-- captured photo review -->
+    <div id="reviewView" class="hidden">
+      <canvas id="result"></canvas>
+      <div id="reviewControls">
+        <button id="retakeBtn">Retake</button>
+        <button id="saveBtn">Save</button>
+      </div>
+    </div>
+
+    <div id="errorBox" class="hidden"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

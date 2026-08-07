@@ -1,0 +1,132 @@
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  touch-action: none;
+  font-family: -apple-system, Helvetica, Arial, sans-serif;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#liveView, #reviewView {
+  position: absolute;
+  inset: 0;
+}
+
+.hidden { display: none !important; }
+
+#cam { display: none; }
+
+#preview, #result {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+#filterLabel {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+  pointer-events: none;
+}
+
+#rotateBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,.4);
+  color: #fff;
+  font-size: 15px;
+  line-height: 28px;
+  text-align: center;
+  padding: 0;
+}
+
+#controls {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+
+#switchBtn, #spacer {
+  width: 44px;
+  height: 44px;
+}
+
+#switchBtn {
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  color: #fff;
+  font-size: 12px;
+}
+
+#shutterBtn {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid rgba(255,255,255,.5);
+  box-shadow: 0 0 0 2px #000 inset;
+}
+
+#reviewControls {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 18px;
+}
+
+#reviewControls button {
+  flex: 1;
+  max-width: 120px;
+  height: 38px;
+  border: none;
+  border-radius: 19px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 8px;
+}
+
+#retakeBtn { background: rgba(255,255,255,.2); color: #fff; }
+#saveBtn { background: #fff; color: #000; }
+
+#errorBox {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+  background: #000;
+}
