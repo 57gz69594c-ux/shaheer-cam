@@ -9,10 +9,17 @@ html, body {
   font-family: -apple-system, Helvetica, Arial, sans-serif;
 }
 
+/* Whole app UI (camera view, controls, menus) rendered as a 282x240
+   landscape canvas then rotated 90deg clockwise to fill the 240x282
+   physical screen — the rotated bounding box matches the screen exactly. */
 #app {
-  position: relative;
-  width: 240px;
-  height: 282px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 282px;
+  height: 240px;
+  transform: translate(-50%, -50%) rotate(90deg);
+  transform-origin: center center;
   overflow: hidden;
 }
 
@@ -25,10 +32,19 @@ html, body {
 
 #cam { display: none; }
 
-#preview, #result, #galleryCanvas, #resultVideo {
+#preview, #resultVideo {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+/* contain (not cover) so a captured photo's added white border is never cropped */
+#result, #galleryCanvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   display: block;
   background: #000;
 }
@@ -158,7 +174,7 @@ html, body {
   padding: 0 18px;
 }
 
-#switchBtn, #spacer {
+#switchBtn, #borderBtn {
   width: 44px;
   height: 44px;
 }
@@ -169,6 +185,18 @@ html, body {
   background: rgba(255,255,255,.15);
   color: #fff;
   font-size: 12px;
+}
+
+#borderBtn {
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,.15);
+  color: #fff;
+  font-size: 16px;
+}
+#borderBtn.active {
+  background: #fff;
+  color: #000;
 }
 
 #shutterBtn {

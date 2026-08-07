@@ -25,6 +25,7 @@ const galleryEmailBtn = document.getElementById('galleryEmailBtn');
 const toast = document.getElementById('toast');
 const resultVideo = document.getElementById('resultVideo');
 const recIndicator = document.getElementById('recIndicator');
+const borderBtn = document.getElementById('borderBtn');
 
 let toastTimer = null;
 function showToast(msg, ms) {
@@ -84,124 +85,136 @@ let cameraStream = null;
 // Each preset emulates a real film stock: a base color grade (css filter),
 // a black-lift (film shadows are never pure black), a split-tone color cast,
 // grain, a tinted vignette, and stock-specific extras (halation, light leak,
-// dust/scratches).
+// dust/scratches, highlight haze). Grades are pushed hard against each other
+// on purpose — warm vs cool, punchy vs muted, color vs mono — so consecutive
+// filters read as genuinely different stocks, not variations on one look.
+// `haze` = a soft mist/glow bloomed out of the highlights (not every stock
+// gets it — only the ones where that hazy, dreamy vintage glow is authentic).
 const FILTERS = {
   'Polaroid': {
-    css: 'contrast(0.9) saturate(1.05) brightness(1.12) sepia(0.18)',
-    blackLift: 'rgba(46,38,26,0.26)',
+    css: 'contrast(0.82) saturate(0.92) brightness(1.18) sepia(0.28) hue-rotate(-6deg)',
+    blackLift: 'rgba(52,42,26,0.32)',
     tint: [
-      { color: 'rgba(255,214,150,0.18)', blend: 'soft-light' },
-      { color: 'rgba(120,140,90,0.09)', blend: 'soft-light' },
+      { color: 'rgba(255,222,164,0.24)', blend: 'soft-light' },
+      { color: 'rgba(255,255,255,0.08)', blend: 'screen' },
     ],
-    grain: 0.14,
-    vignette: { strength: 0.42, color: '35,24,12' },
+    grain: 0.16,
+    vignette: { strength: 0.4, color: '40,28,14' },
     lightLeak: true,
     scratches: false,
     halation: false,
-    blur: 0.3,
+    haze: true,
+    blur: 0.4,
   },
   'Kodachrome': {
-    css: 'contrast(1.26) saturate(1.5) brightness(1.0)',
-    blackLift: 'rgba(15,8,6,0.06)',
-    tint: { color: 'rgba(255,90,40,0.10)', blend: 'soft-light' },
-    grain: 0.07,
-    vignette: { strength: 0.3, color: '20,6,2' },
+    css: 'contrast(1.38) saturate(1.75) brightness(0.98) hue-rotate(3deg)',
+    blackLift: 'rgba(12,6,4,0.04)',
+    tint: { color: 'rgba(255,55,15,0.13)', blend: 'soft-light' },
+    grain: 0.05,
+    vignette: { strength: 0.32, color: '18,4,2' },
     lightLeak: false,
     scratches: false,
     halation: false,
+    haze: false,
     blur: 0,
   },
   'Lomo': {
-    css: 'contrast(1.32) saturate(1.55) brightness(1.05)',
-    blackLift: 'rgba(20,10,25,0.10)',
+    css: 'contrast(1.45) saturate(1.9) brightness(1.08) hue-rotate(14deg)',
+    blackLift: 'rgba(26,4,32,0.16)',
     tint: [
-      { color: 'rgba(160,255,80,0.10)', blend: 'soft-light' },
-      { color: 'rgba(255,0,150,0.06)', blend: 'overlay' },
+      { color: 'rgba(140,255,60,0.18)', blend: 'overlay' },
+      { color: 'rgba(255,0,170,0.14)', blend: 'soft-light' },
     ],
-    grain: 0.19,
-    vignette: { strength: 0.68, color: '5,0,10' },
+    grain: 0.22,
+    vignette: { strength: 0.78, color: '5,0,15' },
     lightLeak: true,
     scratches: false,
     halation: false,
+    haze: false,
     blur: 0,
   },
   'Kodak Gold': {
-    css: 'contrast(1.16) saturate(1.35) brightness(1.03)',
-    blackLift: 'rgba(20,12,8,0.08)',
-    tint: { color: 'rgba(255,170,70,0.14)', blend: 'soft-light' },
-    grain: 0.08,
-    vignette: { strength: 0.26, color: '25,14,4' },
+    css: 'contrast(1.2) saturate(1.45) brightness(1.06) hue-rotate(-2deg)',
+    blackLift: 'rgba(24,15,6,0.1)',
+    tint: { color: 'rgba(255,178,60,0.2)', blend: 'soft-light' },
+    grain: 0.09,
+    vignette: { strength: 0.24, color: '28,16,4' },
     lightLeak: false,
     scratches: false,
     halation: false,
+    haze: true,
     blur: 0,
   },
   'Kodak Portra': {
-    css: 'contrast(1.05) saturate(1.1) brightness(1.03)',
-    blackLift: 'rgba(25,18,14,0.06)',
-    tint: { color: 'rgba(255,180,140,0.08)', blend: 'soft-light' },
-    grain: 0.06,
-    vignette: { strength: 0.22, color: '20,12,8' },
+    css: 'contrast(0.92) saturate(0.8) brightness(1.1) hue-rotate(-3deg)',
+    blackLift: 'rgba(32,24,20,0.08)',
+    tint: { color: 'rgba(255,202,178,0.16)', blend: 'soft-light' },
+    grain: 0.05,
+    vignette: { strength: 0.16, color: '24,16,12' },
     lightLeak: false,
     scratches: false,
     halation: false,
-    blur: 0,
+    haze: true,
+    blur: 0.2,
   },
   'Super 8': {
-    css: 'contrast(1.15) saturate(0.75) brightness(1.05) sepia(0.25) hue-rotate(-4deg)',
-    blackLift: 'rgba(35,25,10,0.14)',
-    tint: { color: 'rgba(255,190,90,0.14)', blend: 'soft-light' },
-    grain: 0.22,
-    vignette: { strength: 0.5, color: '20,12,4' },
+    css: 'contrast(1.22) saturate(0.5) brightness(1.02) sepia(0.4) hue-rotate(-8deg)',
+    blackLift: 'rgba(42,30,10,0.22)',
+    tint: { color: 'rgba(255,202,104,0.18)', blend: 'soft-light' },
+    grain: 0.3,
+    vignette: { strength: 0.56, color: '22,14,4' },
     lightLeak: false,
     scratches: true,
     halation: false,
-    blur: 0.3,
-    flicker: true,
-    jitter: true,
+    haze: true,
+    blur: 0.55,
   },
   'Fuji Chrome': {
-    css: 'contrast(1.12) saturate(1.0) brightness(1.0)',
-    blackLift: 'rgba(8,18,20,0.10)',
-    tint: { color: 'rgba(80,195,175,0.13)', blend: 'soft-light' },
-    grain: 0.09,
-    vignette: { strength: 0.28, color: '6,16,16' },
+    css: 'contrast(1.22) saturate(1.2) brightness(0.98) hue-rotate(-16deg)',
+    blackLift: 'rgba(6,20,22,0.08)',
+    tint: { color: 'rgba(55,210,190,0.18)', blend: 'soft-light' },
+    grain: 0.06,
+    vignette: { strength: 0.26, color: '4,18,18' },
     lightLeak: false,
     scratches: false,
     halation: false,
+    haze: false,
     blur: 0,
   },
   'Disposable Flash': {
-    css: 'contrast(1.3) saturate(0.65) brightness(1.14)',
-    blackLift: 'rgba(30,30,30,0.10)',
-    tint: { color: 'rgba(255,255,255,0.06)', blend: 'overlay' },
-    grain: 0.26,
-    vignette: { strength: 0.55, color: '0,0,0' },
+    css: 'contrast(1.45) saturate(0.5) brightness(1.3)',
+    blackLift: 'rgba(35,35,35,0.14)',
+    tint: { color: 'rgba(255,255,255,0.12)', blend: 'overlay' },
+    grain: 0.3,
+    vignette: { strength: 0.62, color: '0,0,0' },
     lightLeak: false,
     scratches: true,
     halation: false,
-    blur: 0.4,
+    haze: false,
+    blur: 0.5,
   },
   'Cinestill Night': {
-    css: 'contrast(1.2) saturate(0.9) brightness(0.98)',
-    blackLift: 'rgba(6,14,24,0.16)',
-    tint: { color: 'rgba(255,130,70,0.12)', blend: 'soft-light' },
-    grain: 0.13,
-    vignette: { strength: 0.4, color: '4,8,18' },
+    css: 'contrast(1.3) saturate(0.9) brightness(0.92) hue-rotate(6deg)',
+    blackLift: 'rgba(4,10,22,0.24)',
+    tint: { color: 'rgba(255,110,50,0.18)', blend: 'soft-light' },
+    grain: 0.15,
+    vignette: { strength: 0.44, color: '2,6,20' },
     lightLeak: false,
     scratches: false,
     halation: true,
+    haze: true,
     blur: 0,
   },
   'B&W Film': {
-    css: 'contrast(1.22) saturate(0) brightness(1.02)',
-    blackLift: 'rgba(25,25,25,0.10)',
+    css: 'contrast(1.4) saturate(0) brightness(1.0)',
+    blackLift: 'rgba(20,20,20,0.14)',
     tint: null,
-    grain: 0.20,
-    vignette: { strength: 0.42, color: '0,0,0' },
+    grain: 0.26,
+    vignette: { strength: 0.48, color: '0,0,0' },
     lightLeak: false,
-    scratches: false,
+    scratches: true,
     halation: false,
+    haze: false,
     blur: 0,
   },
 };
@@ -324,6 +337,23 @@ function drawHalation(ctx, w, h) {
   ctx.restore();
 }
 
+// Soft, wide mist/glow bloomed out of the highlights — a hazy vintage veil,
+// distinct from halation's tighter point-light bloom. Only stocks flagged
+// `haze` get it, so it stays a deliberate look rather than a blanket filter.
+function drawHaze(ctx, w, h) {
+  const bright = document.createElement('canvas');
+  bright.width = w;
+  bright.height = h;
+  const bctx = bright.getContext('2d');
+  bctx.filter = 'brightness(1.5) blur(7px)';
+  bctx.drawImage(ctx.canvas, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.22;
+  ctx.drawImage(bright, 0, 0);
+  ctx.restore();
+}
+
 function drawLightLeak(ctx, w, h) {
   const corners = [
     [0, 0, w * 0.7, h * 0.7],
@@ -387,6 +417,7 @@ function applyFilmLook(canvas, filterName) {
     (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
   }
   if (f.halation) drawHalation(ctx, w, h);
+  if (f.haze) drawHaze(ctx, w, h);
   drawGrain(ctx, w, h, f.grain);
   drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
   if (f.lightLeak) drawLightLeak(ctx, w, h);
@@ -404,20 +435,30 @@ function ensureGrainTiles(w, h) {
   grainTiles = [generateNoiseCanvas(w, h), generateNoiseCanvas(w, h), generateNoiseCanvas(w, h)];
 }
 
+// Every filter gets the same subtle projector-flicker + gate-weave treatment
+// on video, on top of its own grade — this is what makes ANY filter's video
+// read as "shot on film" rather than just a photo filter over live footage.
+// Kept tiny on purpose: this is cosmetic sub-pixel motion baked into the
+// canvas frame content, not a change to capture cadence, so recordCanvas
+// still feeds captureStream() at the same fixed rate — no dropped frames,
+// no frame-rate cost, just a faint flicker/weave riding on top.
+const VIDEO_FLICKER_RANGE = 0.03; // ±3% brightness wobble per frame
+const VIDEO_JITTER_PX = 0.5; // ±0.5px gate-weave, subtle not shaky
+
 function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   const f = FILTERS[filterName];
-  // Super-8-style projector flicker: a small random brightness wobble per frame.
-  let css = f.flicker ? `${f.css} brightness(${(0.9 + Math.random() * 0.2).toFixed(3)})` : f.css;
+  const flicker = 1 + (Math.random() * 2 - 1) * VIDEO_FLICKER_RANGE;
+  const css = `${f.css} brightness(${flicker.toFixed(3)})`;
   ctx.filter = f.blur ? `${css} blur(${f.blur}px)` : css;
-  // Handheld-camera gate weave: a tiny random position jitter per frame.
-  const dx = f.jitter ? (Math.random() - 0.5) * 3 : 0;
-  const dy = f.jitter ? (Math.random() - 0.5) * 3 : 0;
+  const dx = (Math.random() - 0.5) * VIDEO_JITTER_PX;
+  const dy = (Math.random() - 0.5) * VIDEO_JITTER_PX;
   ctx.drawImage(srcCanvas, dx, dy);
   ctx.filter = 'none';
   if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
   if (f.tint) {
     (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
   }
+  if (f.haze) drawHaze(ctx, w, h);
   ensureGrainTiles(w, h);
   const tile = grainTiles[Math.floor(Math.random() * grainTiles.length)];
   ctx.save();
@@ -468,6 +509,40 @@ async function addToGallery(dataUrl, filterName) {
   await saveGallery(list);
 }
 
+// ---------- Polaroid-style white border (toggle) ----------
+function getBorderEnabled() {
+  return localStorage.getItem('r1-border') === '1';
+}
+function setBorderEnabled(v) {
+  localStorage.setItem('r1-border', v ? '1' : '0');
+  updateBorderBtn();
+}
+function updateBorderBtn() {
+  const on = getBorderEnabled();
+  borderBtn.classList.toggle('active', on);
+  borderBtn.textContent = on ? '▨' : '▭';
+}
+borderBtn.addEventListener('click', () => setBorderEnabled(!getBorderEnabled()));
+updateBorderBtn();
+
+// Classic instant-film frame: even side/top margin, deeper bottom margin,
+// warm off-white (real Polaroid stock is never pure white).
+function addPolaroidBorder(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const side = Math.round(w * 0.06);
+  const top = side;
+  const bottom = Math.round(h * 0.18);
+  const bordered = document.createElement('canvas');
+  bordered.width = w + side * 2;
+  bordered.height = h + top + bottom;
+  const bctx = bordered.getContext('2d');
+  bctx.fillStyle = '#f4f1e8';
+  bctx.fillRect(0, 0, bordered.width, bordered.height);
+  bctx.drawImage(canvas, side, top);
+  return bordered;
+}
+
 function downloadDataUrl(dataUrl, filename) {
   const a = document.createElement('a');
   a.href = dataUrl;
@@ -501,9 +576,11 @@ function capturePhoto() {
   shot.getContext('2d').drawImage(rotCanvas, 0, 0);
   applyFilmLook(shot, currentFilter);
 
-  resultCanvas.width = shot.width;
-  resultCanvas.height = shot.height;
-  resultCanvas.getContext('2d').drawImage(shot, 0, 0);
+  const finalShot = getBorderEnabled() ? addPolaroidBorder(shot) : shot;
+
+  resultCanvas.width = finalShot.width;
+  resultCanvas.height = finalShot.height;
+  resultCanvas.getContext('2d').drawImage(finalShot, 0, 0);
 
   addToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
   enterReview('photo');
