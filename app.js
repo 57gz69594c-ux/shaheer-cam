@@ -81,8 +81,10 @@ function emailPhoto(dataUrl, btn) {
 const rotCanvas = document.createElement('canvas');
 const rotCtx = rotCanvas.getContext('2d');
 
-// the live camera+mic MediaStream, kept around so recording can pull an audio track from it
+// the live camera MediaStream, kept around so it can be torn down on facing switch
 let cameraStream = null;
+// separately-acquired mic MediaStream, kept around so recording can pull an audio track from it
+let micStream = null;
 
 // ---------- film looks ----------
 // Each preset emulates a real film stock: a base color grade (css filter),
@@ -637,13 +639,20 @@ function downloadDataUrl(dataUrl, filename) {
 }
 
 // ---------- capture / review flow ----------
+// Nothing is written to the gallery at capture time anymore — a shot only
+// exists in-memory while you're reviewing it. It's only persisted (and only
+// downloaded to the device) when you explicitly press Save; Back/Retake, or
+// the back-gesture guard, just drop it.
 let reviewMediaType = 'photo'; // 'photo' | 'video'
 let currentVideoUrl = null;
 let currentVideoBlob = null;
 let currentVideoExt = 'webm';
+let currentVideoThumb = '';
+let currentItemSaved = false;
 
 function enterReview(type) {
   reviewMediaType = type;
+  currentItemSaved = false;
   resultCanvas.classList.toggle('hidden', type !== 'photo');
   resultVideo.classList.toggle('hidden', type !== 'video');
   emailBtn.classList.toggle('hidden', type !== 'photo'); // video files are too large for EmailJS
@@ -666,14 +675,12 @@ function capturePhoto() {
   resultCanvas.height = finalShot.height;
   resultCanvas.getContext('2d').drawImage(finalShot, 0, 0);
 
-  addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
   enterReview('photo');
 }
 
 // Shared by the Retake button, the on-screen review Back button, and the
 // hardware/OS back-gesture guard below — all three just mean "go back to
-// the live camera view", they don't discard the saved photo (it was already
-// written to the gallery at capture time).
+// the live camera view" and, if Save was never pressed, discard the shot.
 function exitReviewToLive() {
   if (currentVideoUrl) {
     URL.revokeObjectURL(currentVideoUrl);
@@ -682,6 +689,8 @@ function exitReviewToLive() {
     resultVideo.removeAttribute('src');
     resultVideo.load();
   }
+  currentVideoBlob = null;
+  currentVideoThumb = '';
   reviewView.classList.add('hidden');
   liveView.classList.remove('hidden');
   appView = 'live';
@@ -694,11 +703,19 @@ emailBtn.addEventListener('click', () => {
 });
 
 saveBtn.addEventListener('click', () => {
-  if (reviewMediaType === 'video') {
-    if (!currentVideoBlob) return;
-    downloadDataUrl(URL.createObjectURL(currentVideoBlob), `film-camera-${slugify(currentFilter)}-${Date.now()}.${currentVideoExt}`);
+  if (currentItemSaved) {
+    showToast('Already saved', 1200);
     return;
   }
+  currentItemSaved = true;
+  if (reviewMediaType === 'video') {
+    if (!currentVideoBlob) return;
+    addVideoToGallery(currentVideoBlob, currentVideoBlob.type || 'video/webm', currentFilter, currentVideoThumb);
+    downloadDataUrl(URL.createObjectURL(currentVideoBlob), `film-camera-${slugify(currentFilter)}-${Date.now()}.${currentVideoExt}`);
+    showToast('Saved to gallery', 1500);
+    return;
+  }
+  addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
   resultCanvas.toBlob((blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -709,13 +726,15 @@ saveBtn.addEventListener('click', () => {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, 'image/jpeg', 0.92);
+  showToast('Saved to gallery', 1500);
 });
 
 // ---------- video recording ----------
 // Recorded via MediaRecorder on a canvas stream that's graded frame-by-frame
-// in real time. Capped at 10s. Saved into the gallery like photos (via
-// addVideoToGallery, IndexedDB-backed — see above), just not emailable —
-// EmailJS has no room for video-sized attachments.
+// in real time. Capped at 10s. Only written into the gallery (IndexedDB —
+// see addVideoToGallery above) once Save is pressed in review, same as
+// photos; not emailable either way — EmailJS has no room for video-sized
+// attachments.
 const MAX_RECORD_MS = 10000;
 const recordCanvas = document.createElement('canvas');
 const recordCtx = recordCanvas.getContext('2d');
@@ -768,9 +787,11 @@ function startRecording() {
   recordCanvas.width = rotCanvas.width;
   recordCanvas.height = rotCanvas.height;
   const stream = recordCanvas.captureStream(24);
-  if (cameraStream) {
-    const audioTrack = cameraStream.getAudioTracks()[0];
-    if (audioTrack) stream.addTrack(audioTrack);
+  const audioTrack = micStream && micStream.getAudioTracks()[0];
+  if (audioTrack) {
+    stream.addTrack(audioTrack);
+  } else {
+    showToast('Recording without sound — mic unavailable', 2000);
   }
   recordedChunks = [];
   try {
@@ -814,9 +835,9 @@ function onRecordingStopped() {
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
   resultVideo.src = currentVideoUrl;
-  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail.
-  const thumbDataUrl = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
-  addVideoToGallery(currentVideoBlob, mime, currentFilter, thumbDataUrl);
+  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
+  // held in memory until Save actually writes it (and the video) to the gallery.
+  currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
   enterReview('video');
 }
 
@@ -1096,17 +1117,20 @@ function showError(msg) {
   errorBox.classList.remove('hidden');
 }
 
-// Tries camera+mic first (needed so video recordings have sound); falls back
-// to video-only if the mic is denied/unavailable, then to any camera at all.
+// Video and mic are requested as two separate getUserMedia calls, not one
+// combined constraint object. A combined { video, audio: true } request was
+// silently falling back to video-only whenever the mic side of that single
+// negotiation failed for any reason, producing recordings with no sound and
+// no indication why. Splitting them means a mic failure can't take the
+// camera down with it (or vice versa), and it's the same track either way
+// once startRecording() reads micStream.getAudioTracks()[0].
 // facingMode is `ideal`, not `exact`, so on hardware with only one camera
 // this is simply ignored rather than throwing OverconstrainedError.
 function buildCameraAttempts() {
   const facing = getFacing();
   return [
-    { video: { facingMode: { ideal: facing } }, audio: true },
-    { video: true, audio: true },
-    { video: { facingMode: { ideal: facing } }, audio: false },
-    { video: true, audio: false },
+    { video: { facingMode: { ideal: facing } } },
+    { video: true },
   ];
 }
 
@@ -1137,4 +1161,14 @@ async function initCamera() {
   showError('Camera access failed: ' + (lastErr ? lastErr.message : 'unknown error'));
 }
 
+async function initMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    micStream = null;
+    console.warn('Microphone unavailable, videos will record without sound:', err);
+  }
+}
+
 initCamera();
+initMic();
