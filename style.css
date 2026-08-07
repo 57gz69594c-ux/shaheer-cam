@@ -172,12 +172,27 @@ html, body {
 }
 
 #shutterBtn {
+  position: relative;
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: #fff;
-  border: 3px solid rgba(255,255,255,.5);
+  background: transparent;
+  border: 3px solid rgba(255,255,255,.7);
   box-shadow: 0 0 0 2px #000 inset;
+}
+#shutterBtn::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: #ff3b30;
+  transition: border-radius .15s ease;
+}
+#shutterBtn.recording {
+  border-color: rgba(255,59,48,.8);
+}
+#shutterBtn.recording::after {
+  border-radius: 6px;
 }
 
 #reviewControls {

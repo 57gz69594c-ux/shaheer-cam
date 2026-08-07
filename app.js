@@ -136,6 +136,30 @@ const FILTERS = {
     halation: false,
     blur: 0,
   },
+  'Kodak Portra': {
+    css: 'contrast(1.05) saturate(1.1) brightness(1.03)',
+    blackLift: 'rgba(25,18,14,0.06)',
+    tint: { color: 'rgba(255,180,140,0.08)', blend: 'soft-light' },
+    grain: 0.06,
+    vignette: { strength: 0.22, color: '20,12,8' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    blur: 0,
+  },
+  'Super 8': {
+    css: 'contrast(1.15) saturate(0.75) brightness(1.05) sepia(0.25) hue-rotate(-4deg)',
+    blackLift: 'rgba(35,25,10,0.14)',
+    tint: { color: 'rgba(255,190,90,0.14)', blend: 'soft-light' },
+    grain: 0.22,
+    vignette: { strength: 0.5, color: '20,12,4' },
+    lightLeak: false,
+    scratches: true,
+    halation: false,
+    blur: 0.3,
+    flicker: true,
+    jitter: true,
+  },
   'Fuji Chrome': {
     css: 'contrast(1.12) saturate(1.0) brightness(1.0)',
     blackLift: 'rgba(8,18,20,0.10)',
@@ -382,8 +406,13 @@ function ensureGrainTiles(w, h) {
 
 function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   const f = FILTERS[filterName];
-  ctx.filter = f.blur ? `${f.css} blur(${f.blur}px)` : f.css;
-  ctx.drawImage(srcCanvas, 0, 0);
+  // Super-8-style projector flicker: a small random brightness wobble per frame.
+  let css = f.flicker ? `${f.css} brightness(${(0.9 + Math.random() * 0.2).toFixed(3)})` : f.css;
+  ctx.filter = f.blur ? `${css} blur(${f.blur}px)` : css;
+  // Handheld-camera gate weave: a tiny random position jitter per frame.
+  const dx = f.jitter ? (Math.random() - 0.5) * 3 : 0;
+  const dy = f.jitter ? (Math.random() - 0.5) * 3 : 0;
+  ctx.drawImage(srcCanvas, dx, dy);
   ctx.filter = 'none';
   if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
   if (f.tint) {
@@ -591,6 +620,8 @@ function startRecording() {
   isRecording = true;
   recordStartTime = Date.now();
   recIndicator.classList.remove('hidden');
+  shutterBtn.classList.add('recording');
+  shutterBtn.setAttribute('aria-label', 'stop recording');
   updateRecTimer();
   recordTimerInterval = setInterval(updateRecTimer, 500);
   recordRAF = requestAnimationFrame(recordFrameLoop);
@@ -604,6 +635,8 @@ function stopRecording() {
   clearInterval(recordTimerInterval);
   cancelAnimationFrame(recordRAF);
   recIndicator.classList.add('hidden');
+  shutterBtn.classList.remove('recording');
+  shutterBtn.setAttribute('aria-label', 'start recording');
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
 }
 
@@ -617,34 +650,14 @@ function onRecordingStopped() {
   enterReview('video');
 }
 
-// tap shutter = photo, hold shutter = record video
-let shutterHoldTimer = null;
-let shutterHoldFired = false;
-const SHUTTER_HOLD_MS = 450;
-
-function handleShutterDown() {
+// On-screen button = video (tap to start, tap again to stop).
+// Physical side button = photo. Two separate controls, so there's no
+// tap-vs-hold guessing.
+function toggleRecording() {
   if (appView !== 'live') return;
-  shutterHoldFired = false;
-  shutterHoldTimer = setTimeout(() => {
-    shutterHoldFired = true;
-    startRecording();
-  }, SHUTTER_HOLD_MS);
+  if (isRecording) stopRecording(); else startRecording();
 }
-function handleShutterUp() {
-  clearTimeout(shutterHoldTimer);
-  if (shutterHoldFired) {
-    stopRecording();
-  } else if (appView === 'live') {
-    capturePhoto();
-  }
-}
-shutterBtn.addEventListener('pointerdown', handleShutterDown);
-shutterBtn.addEventListener('pointerup', handleShutterUp);
-shutterBtn.addEventListener('pointerleave', () => clearTimeout(shutterHoldTimer));
-shutterBtn.addEventListener('pointercancel', () => {
-  clearTimeout(shutterHoldTimer);
-  if (shutterHoldFired) stopRecording();
-});
+shutterBtn.addEventListener('click', toggleRecording);
 
 // ---------- gallery view ----------
 let galleryPhotos = [];
@@ -730,34 +743,27 @@ switchBtn.addEventListener('click', switchFilter);
 // rotating camera to face you — left free here (in the live view) so it
 // isn't fought over. It's still used to browse the gallery, where the
 // camera isn't in view anyway. Filters are switched only via the on-screen
-// switch button, never the wheel. The physical side button mirrors the
-// on-screen shutter: a quick press is a photo, a long press records video —
-// the R1 already tells these apart via separate sideClick/longPress events.
+// switch button, never the wheel. The physical side button is the photo
+// shutter — a separate control from the on-screen video toggle, so photo
+// and video never fight over the same button.
 function onScroll(delta) {
   if (appView === 'gallery') galleryNav(delta);
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
 window.addEventListener('sideClick', () => {
-  if (appView === 'live' && !isRecording) capturePhoto();
-});
-window.addEventListener('longPressStart', () => {
-  if (appView === 'live' && !isRecording) startRecording();
-});
-window.addEventListener('longPressEnd', () => {
-  if (isRecording) stopRecording();
+  if (appView === 'live') capturePhoto();
 });
 
 // keyboard fallback, useful when testing in a normal browser
+// (space = video toggle, mirroring the on-screen button; 'p' = photo, mirroring the side button)
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') { if (!e.repeat) { e.preventDefault(); handleShutterDown(); } }
+  if (e.code === 'Space') { if (!e.repeat) { e.preventDefault(); toggleRecording(); } }
+  else if (e.key === 'p') capturePhoto();
   else if (e.code === 'ArrowLeft') { if (appView === 'gallery') galleryNav(-1); else switchFilter(); }
   else if (e.code === 'ArrowRight') { if (appView === 'gallery') galleryNav(1); else switchFilter(); }
   else if (e.key === 'r') rotateBtn.click();
   else if (e.key === 'Escape') { if (appView === 'gallery') closeGallery(); }
-});
-document.addEventListener('keyup', (e) => {
-  if (e.code === 'Space') { e.preventDefault(); handleShutterUp(); }
 });
 
 // ---------- camera init ----------
