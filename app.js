@@ -23,6 +23,8 @@ const gallerySaveBtn = document.getElementById('gallerySaveBtn');
 const emailBtn = document.getElementById('emailBtn');
 const galleryEmailBtn = document.getElementById('galleryEmailBtn');
 const toast = document.getElementById('toast');
+const resultVideo = document.getElementById('resultVideo');
+const recIndicator = document.getElementById('recIndicator');
 
 let toastTimer = null;
 function showToast(msg, ms) {
@@ -82,11 +84,39 @@ const rotCtx = rotCanvas.getContext('2d');
 // dust/scratches).
 const FILTERS = {
   'Polaroid': {
-    css: 'contrast(0.97) saturate(0.95) brightness(1.07) sepia(0.10)',
-    blackLift: 'rgba(40,32,24,0.18)',
-    tint: { color: 'rgba(255,205,140,0.12)', blend: 'soft-light' },
-    grain: 0.10,
-    vignette: { strength: 0.34, color: '30,20,10' },
+    css: 'contrast(0.9) saturate(1.05) brightness(1.12) sepia(0.18)',
+    blackLift: 'rgba(46,38,26,0.26)',
+    tint: [
+      { color: 'rgba(255,214,150,0.18)', blend: 'soft-light' },
+      { color: 'rgba(120,140,90,0.09)', blend: 'soft-light' },
+    ],
+    grain: 0.14,
+    vignette: { strength: 0.42, color: '35,24,12' },
+    lightLeak: true,
+    scratches: false,
+    halation: false,
+    blur: 0.3,
+  },
+  'Kodachrome': {
+    css: 'contrast(1.26) saturate(1.5) brightness(1.0)',
+    blackLift: 'rgba(15,8,6,0.06)',
+    tint: { color: 'rgba(255,90,40,0.10)', blend: 'soft-light' },
+    grain: 0.07,
+    vignette: { strength: 0.3, color: '20,6,2' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    blur: 0,
+  },
+  'Lomo': {
+    css: 'contrast(1.32) saturate(1.55) brightness(1.05)',
+    blackLift: 'rgba(20,10,25,0.10)',
+    tint: [
+      { color: 'rgba(160,255,80,0.10)', blend: 'soft-light' },
+      { color: 'rgba(255,0,150,0.06)', blend: 'overlay' },
+    ],
+    grain: 0.19,
+    vignette: { strength: 0.68, color: '5,0,10' },
     lightLeak: true,
     scratches: false,
     halation: false,
@@ -194,12 +224,12 @@ function renderLoop() {
 }
 
 // ---------- film processing (applied at capture time, full quality) ----------
-function drawGrain(ctx, w, h, intensity) {
-  const noise = document.createElement('canvas');
-  noise.width = w;
-  noise.height = h;
-  const nctx = noise.getContext('2d');
-  const imgData = nctx.createImageData(w, h);
+function generateNoiseCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const cctx = c.getContext('2d');
+  const imgData = cctx.createImageData(w, h);
   for (let i = 0; i < imgData.data.length; i += 4) {
     const v = Math.floor(Math.random() * 255);
     imgData.data[i] = v;
@@ -207,7 +237,12 @@ function drawGrain(ctx, w, h, intensity) {
     imgData.data[i + 2] = v;
     imgData.data[i + 3] = 255;
   }
-  nctx.putImageData(imgData, 0, 0);
+  cctx.putImageData(imgData, 0, 0);
+  return c;
+}
+
+function drawGrain(ctx, w, h, intensity) {
+  const noise = generateNoiseCanvas(w, h);
   ctx.save();
   ctx.globalAlpha = intensity;
   ctx.globalCompositeOperation = 'overlay';
@@ -321,11 +356,44 @@ function applyFilmLook(canvas, filterName) {
   ctx.drawImage(graded, 0, 0);
 
   if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
-  if (f.tint) drawTint(ctx, w, h, f.tint.color, f.tint.blend);
+  if (f.tint) {
+    (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
+  }
   if (f.halation) drawHalation(ctx, w, h);
   drawGrain(ctx, w, h, f.grain);
   drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
   if (f.lightLeak) drawLightLeak(ctx, w, h);
+  if (f.scratches) drawScratches(ctx, w, h);
+}
+
+// ---------- lightweight per-frame grading for video (cached grain tiles —
+// generating fresh per-pixel noise every frame is too slow on R1 hardware) ----------
+let grainTiles = [];
+let grainTileKey = '';
+function ensureGrainTiles(w, h) {
+  const key = `${w}x${h}`;
+  if (grainTileKey === key && grainTiles.length) return;
+  grainTileKey = key;
+  grainTiles = [generateNoiseCanvas(w, h), generateNoiseCanvas(w, h), generateNoiseCanvas(w, h)];
+}
+
+function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
+  const f = FILTERS[filterName];
+  ctx.filter = f.blur ? `${f.css} blur(${f.blur}px)` : f.css;
+  ctx.drawImage(srcCanvas, 0, 0);
+  ctx.filter = 'none';
+  if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
+  if (f.tint) {
+    (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
+  }
+  ensureGrainTiles(w, h);
+  const tile = grainTiles[Math.floor(Math.random() * grainTiles.length)];
+  ctx.save();
+  ctx.globalAlpha = f.grain;
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.drawImage(tile, 0, 0);
+  ctx.restore();
+  drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
   if (f.scratches) drawScratches(ctx, w, h);
 }
 
@@ -378,6 +446,21 @@ function downloadDataUrl(dataUrl, filename) {
 }
 
 // ---------- capture / review flow ----------
+let reviewMediaType = 'photo'; // 'photo' | 'video'
+let currentVideoUrl = null;
+let currentVideoBlob = null;
+let currentVideoExt = 'webm';
+
+function enterReview(type) {
+  reviewMediaType = type;
+  resultCanvas.classList.toggle('hidden', type !== 'photo');
+  resultVideo.classList.toggle('hidden', type !== 'video');
+  emailBtn.classList.toggle('hidden', type !== 'photo'); // video files are too large for EmailJS
+  liveView.classList.add('hidden');
+  reviewView.classList.remove('hidden');
+  appView = 'review';
+}
+
 function capturePhoto() {
   if (appView !== 'live' || !rotCanvas.width) return;
   const shot = document.createElement('canvas');
@@ -391,13 +474,17 @@ function capturePhoto() {
   resultCanvas.getContext('2d').drawImage(shot, 0, 0);
 
   addToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
-
-  liveView.classList.add('hidden');
-  reviewView.classList.remove('hidden');
-  appView = 'review';
+  enterReview('photo');
 }
 
 retakeBtn.addEventListener('click', () => {
+  if (currentVideoUrl) {
+    URL.revokeObjectURL(currentVideoUrl);
+    currentVideoUrl = null;
+    resultVideo.pause();
+    resultVideo.removeAttribute('src');
+    resultVideo.load();
+  }
   reviewView.classList.add('hidden');
   liveView.classList.remove('hidden');
   appView = 'live';
@@ -408,16 +495,141 @@ emailBtn.addEventListener('click', () => {
 });
 
 saveBtn.addEventListener('click', () => {
+  if (reviewMediaType === 'video') {
+    if (!currentVideoBlob) return;
+    downloadDataUrl(URL.createObjectURL(currentVideoBlob), `film-camera-${slugify(currentFilter)}-${Date.now()}.${currentVideoExt}`);
+    return;
+  }
   resultCanvas.toBlob((blob) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `shaheer-cam-${slugify(currentFilter)}-${Date.now()}.jpg`;
+    a.download = `film-camera-${slugify(currentFilter)}-${Date.now()}.jpg`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }, 'image/jpeg', 0.92);
+});
+
+// ---------- video recording ----------
+// Recorded via MediaRecorder on a canvas stream that's graded frame-by-frame
+// in real time. Capped at 10s and not added to the photo gallery — the
+// gallery stores everything as base64 in on-device storage, and even a short
+// clip would be far too large for that (and for emailing).
+const MAX_RECORD_MS = 10000;
+const recordCanvas = document.createElement('canvas');
+const recordCtx = recordCanvas.getContext('2d');
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recordRAF = null;
+let recordStartTime = 0;
+let recordTimerInterval = null;
+let recordAutoStopTimer = null;
+
+function pickVideoMimeType() {
+  if (!window.MediaRecorder) return '';
+  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  for (const c of candidates) {
+    if (MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return '';
+}
+
+function recordFrameLoop() {
+  if (!isRecording) return;
+  if (rotCanvas.width) {
+    recordCanvas.width = rotCanvas.width;
+    recordCanvas.height = rotCanvas.height;
+    drawFrameGraded(recordCtx, rotCanvas, recordCanvas.width, recordCanvas.height, currentFilter);
+  }
+  recordRAF = requestAnimationFrame(recordFrameLoop);
+}
+
+function updateRecTimer() {
+  const secs = Math.floor((Date.now() - recordStartTime) / 1000);
+  recIndicator.textContent = `● REC 0:${String(secs).padStart(2, '0')}`;
+}
+
+function startRecording() {
+  if (appView !== 'live' || isRecording || !rotCanvas.width) return;
+  if (!window.MediaRecorder) {
+    showToast('Video recording is not supported on this device');
+    return;
+  }
+  const mimeType = pickVideoMimeType();
+  recordCanvas.width = rotCanvas.width;
+  recordCanvas.height = rotCanvas.height;
+  const stream = recordCanvas.captureStream(24);
+  recordedChunks = [];
+  try {
+    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  } catch (e) {
+    showToast('Could not start recording: ' + e.message);
+    return;
+  }
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size) recordedChunks.push(e.data);
+  };
+  mediaRecorder.onstop = onRecordingStopped;
+  mediaRecorder.start();
+  isRecording = true;
+  recordStartTime = Date.now();
+  recIndicator.classList.remove('hidden');
+  updateRecTimer();
+  recordTimerInterval = setInterval(updateRecTimer, 500);
+  recordRAF = requestAnimationFrame(recordFrameLoop);
+  recordAutoStopTimer = setTimeout(stopRecording, MAX_RECORD_MS);
+}
+
+function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false;
+  clearTimeout(recordAutoStopTimer);
+  clearInterval(recordTimerInterval);
+  cancelAnimationFrame(recordRAF);
+  recIndicator.classList.add('hidden');
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+}
+
+function onRecordingStopped() {
+  if (!recordedChunks.length) return;
+  const mime = mediaRecorder.mimeType || 'video/webm';
+  currentVideoExt = mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm';
+  currentVideoBlob = new Blob(recordedChunks, { type: mime });
+  currentVideoUrl = URL.createObjectURL(currentVideoBlob);
+  resultVideo.src = currentVideoUrl;
+  enterReview('video');
+}
+
+// tap shutter = photo, hold shutter = record video
+let shutterHoldTimer = null;
+let shutterHoldFired = false;
+const SHUTTER_HOLD_MS = 450;
+
+function handleShutterDown() {
+  if (appView !== 'live') return;
+  shutterHoldFired = false;
+  shutterHoldTimer = setTimeout(() => {
+    shutterHoldFired = true;
+    startRecording();
+  }, SHUTTER_HOLD_MS);
+}
+function handleShutterUp() {
+  clearTimeout(shutterHoldTimer);
+  if (shutterHoldFired) {
+    stopRecording();
+  } else if (appView === 'live') {
+    capturePhoto();
+  }
+}
+shutterBtn.addEventListener('pointerdown', handleShutterDown);
+shutterBtn.addEventListener('pointerup', handleShutterUp);
+shutterBtn.addEventListener('pointerleave', () => clearTimeout(shutterHoldTimer));
+shutterBtn.addEventListener('pointercancel', () => {
+  clearTimeout(shutterHoldTimer);
+  if (shutterHoldFired) stopRecording();
 });
 
 // ---------- gallery view ----------
@@ -483,7 +695,7 @@ galleryDeleteBtn.addEventListener('click', deleteCurrentPhoto);
 gallerySaveBtn.addEventListener('click', () => {
   if (!galleryPhotos.length) return;
   const photo = galleryPhotos[galleryIndex];
-  downloadDataUrl(photo.dataUrl, `shaheer-cam-${slugify(photo.filter)}-${photo.id}.jpg`);
+  downloadDataUrl(photo.dataUrl, `film-camera-${slugify(photo.filter)}-${photo.id}.jpg`);
 });
 galleryEmailBtn.addEventListener('click', () => {
   if (!galleryPhotos.length) return;
@@ -498,30 +710,40 @@ function switchFilter() {
   filterLabel.textContent = currentFilter;
 }
 switchBtn.addEventListener('click', switchFilter);
-shutterBtn.addEventListener('click', capturePhoto);
 
 // ---------- R1 hardware controls ----------
 // The scroll wheel is the R1's own physical control for spinning the
 // rotating camera to face you — left free here (in the live view) so it
 // isn't fought over. It's still used to browse the gallery, where the
 // camera isn't in view anyway. Filters are switched only via the on-screen
-// switch button, never the wheel.
+// switch button, never the wheel. The physical side button mirrors the
+// on-screen shutter: a quick press is a photo, a long press records video —
+// the R1 already tells these apart via separate sideClick/longPress events.
 function onScroll(delta) {
   if (appView === 'gallery') galleryNav(delta);
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
 window.addEventListener('sideClick', () => {
-  if (appView === 'live') capturePhoto();
+  if (appView === 'live' && !isRecording) capturePhoto();
+});
+window.addEventListener('longPressStart', () => {
+  if (appView === 'live' && !isRecording) startRecording();
+});
+window.addEventListener('longPressEnd', () => {
+  if (isRecording) stopRecording();
 });
 
 // keyboard fallback, useful when testing in a normal browser
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') { e.preventDefault(); capturePhoto(); }
+  if (e.code === 'Space') { if (!e.repeat) { e.preventDefault(); handleShutterDown(); } }
   else if (e.code === 'ArrowLeft') { if (appView === 'gallery') galleryNav(-1); else switchFilter(); }
   else if (e.code === 'ArrowRight') { if (appView === 'gallery') galleryNav(1); else switchFilter(); }
   else if (e.key === 'r') rotateBtn.click();
   else if (e.key === 'Escape') { if (appView === 'gallery') closeGallery(); }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); handleShutterUp(); }
 });
 
 // ---------- camera init ----------

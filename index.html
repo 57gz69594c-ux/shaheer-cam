@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=240, initial-scale=1.0, user-scalable=no" />
-<title>Shaheer Cam</title>
-<link rel="stylesheet" href="style.css?v=7" />
+<title>Film Camera</title>
+<link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
   <div id="app">
@@ -14,20 +14,22 @@
       <canvas id="preview"></canvas>
       <video id="cam" playsinline muted autoplay></video>
 
-      <div id="filterLabel">35mm</div>
+      <div id="filterLabel">Polaroid</div>
+      <div id="recIndicator" class="hidden">&#9679; REC 0:00</div>
       <button id="rotateBtn" title="fix orientation">⟳</button>
       <button id="galleryBtn" title="view saved photos">▤</button>
 
       <div id="controls">
         <button id="switchBtn" aria-label="switch film">◀ ▶</button>
-        <button id="shutterBtn" aria-label="capture"></button>
+        <button id="shutterBtn" aria-label="capture (hold for video)"></button>
         <div id="spacer"></div>
       </div>
     </div>
 
-    <!-- captured photo review -->
+    <!-- captured photo/video review -->
     <div id="reviewView" class="hidden">
       <canvas id="result"></canvas>
+      <video id="resultVideo" class="hidden" playsinline controls></video>
       <div id="reviewControls">
         <button id="retakeBtn">Retake</button>
         <button id="emailBtn">Email</button>
@@ -53,6 +55,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
