@@ -20,8 +20,45 @@ const galleryCounter = document.getElementById('galleryCounter');
 const galleryBackBtn = document.getElementById('galleryBackBtn');
 const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
 const gallerySaveBtn = document.getElementById('gallerySaveBtn');
+const emailBtn = document.getElementById('emailBtn');
+const galleryEmailBtn = document.getElementById('galleryEmailBtn');
 
 let appView = 'live'; // 'live' | 'review' | 'gallery'
+
+// ---------- email (EmailJS — sends the photo as an attachment to your own inbox) ----------
+const EMAILJS_SERVICE_ID = 'service_349fg0q';
+const EMAILJS_TEMPLATE_ID = 'template_kaj2dyv';
+const EMAILJS_PUBLIC_KEY = 'w4pGSLR6hhtjl2tx_';
+const EMAIL_TO = 'shaheerkhanmysteryperformer@hotmail.com';
+
+if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
+
+function emailPhoto(dataUrl, btn) {
+  if (!window.emailjs) {
+    btn.textContent = 'Unavailable';
+    setTimeout(() => { btn.textContent = 'Email'; }, 2000);
+    return;
+  }
+  const original = btn.textContent;
+  btn.textContent = 'Sending';
+  btn.disabled = true;
+  btn.classList.add('sending');
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    photo: dataUrl,
+    to_email: EMAIL_TO,
+  }).then(() => {
+    btn.textContent = 'Sent!';
+  }).catch((err) => {
+    btn.textContent = 'Failed';
+    console.error('EmailJS send failed:', err);
+  }).finally(() => {
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.disabled = false;
+      btn.classList.remove('sending');
+    }, 2000);
+  });
+}
 
 // offscreen canvas holding the current rotated, un-graded camera frame
 const rotCanvas = document.createElement('canvas');
@@ -260,6 +297,10 @@ retakeBtn.addEventListener('click', () => {
   appView = 'live';
 });
 
+emailBtn.addEventListener('click', () => {
+  emailPhoto(resultCanvas.toDataURL('image/jpeg', 0.7), emailBtn);
+});
+
 saveBtn.addEventListener('click', () => {
   resultCanvas.toBlob((blob) => {
     const url = URL.createObjectURL(blob);
@@ -337,6 +378,10 @@ gallerySaveBtn.addEventListener('click', () => {
   if (!galleryPhotos.length) return;
   const photo = galleryPhotos[galleryIndex];
   downloadDataUrl(photo.dataUrl, `shaheer-cam-${photo.filter}-${photo.id}.jpg`);
+});
+galleryEmailBtn.addEventListener('click', () => {
+  if (!galleryPhotos.length) return;
+  emailPhoto(galleryPhotos[galleryIndex].dataUrl, galleryEmailBtn);
 });
 
 // ---------- filter switching ----------

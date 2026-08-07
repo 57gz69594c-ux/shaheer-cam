@@ -115,9 +115,10 @@ html, body {
   height: 34px;
   border: none;
   border-radius: 17px;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
-  margin: 0 4px;
+  margin: 0 3px;
+  padding: 0 2px;
   background: rgba(255,255,255,.2);
   color: #fff;
 }
@@ -165,22 +166,23 @@ html, body {
   right: 0;
   display: flex;
   justify-content: space-around;
-  padding: 0 18px;
+  padding: 0 10px;
 }
 
 #reviewControls button {
   flex: 1;
-  max-width: 120px;
-  height: 38px;
+  height: 36px;
   border: none;
-  border-radius: 19px;
-  font-size: 13px;
+  border-radius: 18px;
+  font-size: 12px;
   font-weight: 600;
-  margin: 0 8px;
+  margin: 0 4px;
 }
 
 #retakeBtn { background: rgba(255,255,255,.2); color: #fff; }
+#emailBtn { background: rgba(255,255,255,.2); color: #fff; }
 #saveBtn { background: #fff; color: #000; }
+#emailBtn.sending, #galleryEmailBtn.sending { opacity: .6; }
 
 #errorBox {
   position: absolute;
