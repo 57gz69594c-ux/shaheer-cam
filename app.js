@@ -26,6 +26,8 @@ const toast = document.getElementById('toast');
 const resultVideo = document.getElementById('resultVideo');
 const recIndicator = document.getElementById('recIndicator');
 const borderBtn = document.getElementById('borderBtn');
+const flipCamBtn = document.getElementById('flipCamBtn');
+const reviewBackBtn = document.getElementById('reviewBackBtn');
 
 let toastTimer = null;
 function showToast(msg, ms) {
@@ -239,13 +241,32 @@ function setRotation(deg) {
 }
 rotateBtn.addEventListener('click', () => setRotation(getRotation() + 90));
 
-function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas) {
+// ---------- front/selfie camera ----------
+// R1's camera is a single physically-rotating module (spun to face you via
+// the scroll wheel), not a pair of front/rear sensors, so a software camera
+// switch may or may not do anything depending on how the OS exposes it.
+// `facingMode: { ideal }` is used (not `exact`) so the request is a no-op
+// rather than an error if only one camera is ever exposed. What always
+// works, regardless of hardware, is mirroring the frame — the thing that
+// actually makes a selfie look right once the lens is facing you.
+function getFacing() {
+  return localStorage.getItem('r1-facing') || 'environment';
+}
+function setFacing(v) {
+  localStorage.setItem('r1-facing', v);
+}
+function isSelfieMode() {
+  return getFacing() === 'user';
+}
+
+function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas, mirror) {
   const swapped = rotation === 90 || rotation === 270;
   canvas.width = swapped ? sh : sw;
   canvas.height = swapped ? sw : sh;
   ctx.save();
   ctx.translate(canvas.width / 2, canvas.height / 2);
   ctx.rotate((rotation * Math.PI) / 180);
+  if (mirror) ctx.scale(-1, 1);
   ctx.drawImage(source, -sw / 2, -sh / 2, sw, sh);
   ctx.restore();
 }
@@ -253,7 +274,7 @@ function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas) {
 // ---------- live preview loop ----------
 function renderLoop() {
   if (video.readyState >= 2 && video.videoWidth) {
-    drawRotatedFrame(rotCtx, video, video.videoWidth, video.videoHeight, getRotation(), rotCanvas);
+    drawRotatedFrame(rotCtx, video, video.videoWidth, video.videoHeight, getRotation(), rotCanvas, isSelfieMode());
     previewCanvas.width = rotCanvas.width;
     previewCanvas.height = rotCanvas.height;
     previewCtx.filter = FILTERS[currentFilter].css;
@@ -586,7 +607,11 @@ function capturePhoto() {
   enterReview('photo');
 }
 
-retakeBtn.addEventListener('click', () => {
+// Shared by the Retake button, the on-screen review Back button, and the
+// hardware/OS back-gesture guard below — all three just mean "go back to
+// the live camera view", they don't discard the saved photo (it was already
+// written to the gallery at capture time).
+function exitReviewToLive() {
   if (currentVideoUrl) {
     URL.revokeObjectURL(currentVideoUrl);
     currentVideoUrl = null;
@@ -597,7 +622,10 @@ retakeBtn.addEventListener('click', () => {
   reviewView.classList.add('hidden');
   liveView.classList.remove('hidden');
   appView = 'live';
-});
+}
+
+retakeBtn.addEventListener('click', exitReviewToLive);
+reviewBackBtn.addEventListener('click', exitReviewToLive);
 
 emailBtn.addEventListener('click', () => {
   emailPhoto(resultCanvas.toDataURL('image/jpeg', 0.7), emailBtn);
@@ -832,6 +860,26 @@ window.addEventListener('sideClick', () => {
   if (appView === 'live') capturePhoto();
 });
 
+// ---------- back-gesture guard ----------
+// The R1's back gesture navigates browser history; with no history entry to
+// consume, it closes the whole creation instead of just backing out of the
+// screen you're on. We keep one permanent extra history entry so back
+// always has something to pop first: from review/gallery that pop is caught
+// here and turned into "go to the live camera view" (then the guard entry
+// is put right back, so the stack never grows and the next back press
+// behaves the same way). From the live view there's nothing left to
+// intercept, so back falls through to actually exiting, as expected.
+history.pushState({ guard: true }, '');
+window.addEventListener('popstate', () => {
+  if (appView === 'review') {
+    exitReviewToLive();
+    history.pushState({ guard: true }, '');
+  } else if (appView === 'gallery') {
+    closeGallery();
+    history.pushState({ guard: true }, '');
+  }
+});
+
 // keyboard fallback, useful when testing in a normal browser
 // (space = video toggle, mirroring the on-screen button; 'p' = photo, mirroring the side button)
 document.addEventListener('keydown', (e) => {
@@ -851,22 +899,37 @@ function showError(msg) {
 
 // Tries camera+mic first (needed so video recordings have sound); falls back
 // to video-only if the mic is denied/unavailable, then to any camera at all.
-const CAMERA_ATTEMPTS = [
-  { video: { facingMode: 'environment' }, audio: true },
-  { video: true, audio: true },
-  { video: { facingMode: 'environment' }, audio: false },
-  { video: true, audio: false },
-];
+// facingMode is `ideal`, not `exact`, so on hardware with only one camera
+// this is simply ignored rather than throwing OverconstrainedError.
+function buildCameraAttempts() {
+  const facing = getFacing();
+  return [
+    { video: { facingMode: { ideal: facing } }, audio: true },
+    { video: true, audio: true },
+    { video: { facingMode: { ideal: facing } }, audio: false },
+    { video: true, audio: false },
+  ];
+}
+
+let renderLoopStarted = false;
 
 async function initCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((t) => t.stop());
+    cameraStream = null;
+  }
   let lastErr = null;
-  for (const constraints of CAMERA_ATTEMPTS) {
+  for (const constraints of buildCameraAttempts()) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       cameraStream = stream;
       video.srcObject = stream;
       await video.play();
-      requestAnimationFrame(renderLoop);
+      errorBox.classList.add('hidden');
+      if (!renderLoopStarted) {
+        renderLoopStarted = true;
+        requestAnimationFrame(renderLoop);
+      }
       return;
     } catch (err) {
       lastErr = err;
@@ -874,5 +937,13 @@ async function initCamera() {
   }
   showError('Camera access failed: ' + (lastErr ? lastErr.message : 'unknown error'));
 }
+
+flipCamBtn.addEventListener('click', () => {
+  setFacing(isSelfieMode() ? 'environment' : 'user');
+  flipCamBtn.classList.toggle('active', isSelfieMode());
+  showToast(isSelfieMode() ? 'Selfie mode — mirrored preview' : 'Back camera', 2000);
+  initCamera();
+});
+flipCamBtn.classList.toggle('active', isSelfieMode());
 
 initCamera();
