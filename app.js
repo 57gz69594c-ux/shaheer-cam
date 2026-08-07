@@ -26,8 +26,6 @@ const toast = document.getElementById('toast');
 const resultVideo = document.getElementById('resultVideo');
 const recIndicator = document.getElementById('recIndicator');
 const borderBtn = document.getElementById('borderBtn');
-const flipCamBtn = document.getElementById('flipCamBtn');
-const reviewBackBtn = document.getElementById('reviewBackBtn');
 
 let toastTimer = null;
 function showToast(msg, ms) {
@@ -625,7 +623,6 @@ function exitReviewToLive() {
 }
 
 retakeBtn.addEventListener('click', exitReviewToLive);
-reviewBackBtn.addEventListener('click', exitReviewToLive);
 
 emailBtn.addEventListener('click', () => {
   emailPhoto(resultCanvas.toDataURL('image/jpeg', 0.7), emailBtn);
@@ -844,15 +841,26 @@ function switchFilter() {
 switchBtn.addEventListener('click', switchFilter);
 
 // ---------- R1 hardware controls ----------
-// The scroll wheel is the R1's own physical control for spinning the
-// rotating camera to face you — left free here (in the live view) so it
-// isn't fought over. It's still used to browse the gallery, where the
-// camera isn't in view anyway. Filters are switched only via the on-screen
-// switch button, never the wheel. The physical side button is the photo
-// shutter — a separate control from the on-screen video toggle, so photo
-// and video never fight over the same button.
+// Confirmed on-device: requesting the opposite facingMode via getUserMedia
+// actually drives the R1's motorized camera to physically rotate and face
+// the user, it's not just a software mirror. In the live view the scroll
+// wheel now drives that directly — up faces the camera at you (selfie),
+// down faces it back out — instead of a screen button. In the gallery it
+// still browses photos, since the camera isn't on screen there anyway.
+// Filters are switched only via the on-screen switch button, never the
+// wheel. The physical side button is the photo shutter — a separate
+// control from the on-screen video toggle, so photo and video never fight
+// over the same button.
+function flipToFacing(target) {
+  if (getFacing() === target) return;
+  setFacing(target);
+  showToast(target === 'user' ? 'Selfie mode' : 'Back camera', 1500);
+  initCamera();
+}
+
 function onScroll(delta) {
-  if (appView === 'gallery') galleryNav(delta);
+  if (appView === 'gallery') { galleryNav(delta); return; }
+  if (appView === 'live') flipToFacing(delta < 0 ? 'user' : 'environment');
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
@@ -937,13 +945,5 @@ async function initCamera() {
   }
   showError('Camera access failed: ' + (lastErr ? lastErr.message : 'unknown error'));
 }
-
-flipCamBtn.addEventListener('click', () => {
-  setFacing(isSelfieMode() ? 'environment' : 'user');
-  flipCamBtn.classList.toggle('active', isSelfieMode());
-  showToast(isSelfieMode() ? 'Selfie mode — mirrored preview' : 'Back camera', 2000);
-  initCamera();
-});
-flipCamBtn.classList.toggle('active', isSelfieMode());
 
 initCamera();
