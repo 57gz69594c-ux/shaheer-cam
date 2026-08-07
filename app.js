@@ -22,6 +22,15 @@ const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
 const gallerySaveBtn = document.getElementById('gallerySaveBtn');
 const emailBtn = document.getElementById('emailBtn');
 const galleryEmailBtn = document.getElementById('galleryEmailBtn');
+const toast = document.getElementById('toast');
+
+let toastTimer = null;
+function showToast(msg, ms) {
+  toast.textContent = msg;
+  toast.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), ms || 8000);
+}
 
 let appView = 'live'; // 'live' | 'review' | 'gallery'
 
@@ -50,6 +59,8 @@ function emailPhoto(dataUrl, btn) {
     btn.textContent = 'Sent!';
   }).catch((err) => {
     btn.textContent = 'Failed';
+    const detail = (err && (err.text || err.message)) || JSON.stringify(err);
+    showToast(`Email error (${err && err.status ? err.status : '?'}): ${detail}`);
     console.error('EmailJS send failed:', err);
   }).finally(() => {
     setTimeout(() => {

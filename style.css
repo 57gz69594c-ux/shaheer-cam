@@ -187,6 +187,21 @@ html, body {
 #saveBtn { background: #fff; color: #000; }
 #emailBtn.sending, #galleryEmailBtn.sending { opacity: .6; }
 
+#toast {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 54px;
+  background: rgba(0,0,0,.85);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: 8px;
+  z-index: 500;
+  word-break: break-word;
+}
+
 #errorBox {
   position: absolute;
   inset: 0;
