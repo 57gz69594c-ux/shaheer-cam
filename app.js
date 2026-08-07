@@ -12,6 +12,16 @@ const shutterBtn = document.getElementById('shutterBtn');
 const retakeBtn = document.getElementById('retakeBtn');
 const saveBtn = document.getElementById('saveBtn');
 const errorBox = document.getElementById('errorBox');
+const galleryBtn = document.getElementById('galleryBtn');
+const galleryView = document.getElementById('galleryView');
+const galleryCanvas = document.getElementById('galleryCanvas');
+const galleryEmpty = document.getElementById('galleryEmpty');
+const galleryCounter = document.getElementById('galleryCounter');
+const galleryBackBtn = document.getElementById('galleryBackBtn');
+const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
+const gallerySaveBtn = document.getElementById('gallerySaveBtn');
+
+let appView = 'live'; // 'live' | 'review' | 'gallery'
 
 // offscreen canvas holding the current rotated, un-graded camera frame
 const rotCanvas = document.createElement('canvas');
@@ -176,9 +186,57 @@ function applyFilmLook(canvas, filterName) {
   if (f.scratches) drawScratches(ctx, w, h);
 }
 
+// ---------- saved-photo gallery (persisted so photos survive app restarts) ----------
+// window.creationStorage is the official R1 SDK bridge for durable storage;
+// localStorage is the fallback when it's unavailable (e.g. testing in a desktop browser).
+const MAX_GALLERY = 20;
+
+async function loadGallery() {
+  try {
+    if (window.creationStorage && window.creationStorage.plain) {
+      const raw = await window.creationStorage.plain.getItem('gallery');
+      return raw ? JSON.parse(atob(raw)) : [];
+    }
+  } catch (e) { /* fall through to localStorage */ }
+  try {
+    return JSON.parse(localStorage.getItem('gallery') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+async function saveGallery(list) {
+  const json = JSON.stringify(list);
+  try {
+    if (window.creationStorage && window.creationStorage.plain) {
+      await window.creationStorage.plain.setItem('gallery', btoa(json));
+      return;
+    }
+  } catch (e) { /* fall through to localStorage */ }
+  try {
+    localStorage.setItem('gallery', json);
+  } catch (e) { /* storage full or unavailable — photo just won't persist */ }
+}
+
+async function addToGallery(dataUrl, filterName) {
+  const list = await loadGallery();
+  list.push({ id: Date.now(), filter: filterName, dataUrl });
+  while (list.length > MAX_GALLERY) list.shift();
+  await saveGallery(list);
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // ---------- capture / review flow ----------
 function capturePhoto() {
-  if (!rotCanvas.width) return;
+  if (appView !== 'live' || !rotCanvas.width) return;
   const shot = document.createElement('canvas');
   shot.width = rotCanvas.width;
   shot.height = rotCanvas.height;
@@ -189,13 +247,17 @@ function capturePhoto() {
   resultCanvas.height = shot.height;
   resultCanvas.getContext('2d').drawImage(shot, 0, 0);
 
+  addToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
+
   liveView.classList.add('hidden');
   reviewView.classList.remove('hidden');
+  appView = 'review';
 }
 
 retakeBtn.addEventListener('click', () => {
   reviewView.classList.add('hidden');
   liveView.classList.remove('hidden');
+  appView = 'live';
 });
 
 saveBtn.addEventListener('click', () => {
@@ -211,8 +273,75 @@ saveBtn.addEventListener('click', () => {
   }, 'image/jpeg', 0.92);
 });
 
+// ---------- gallery view ----------
+let galleryPhotos = [];
+let galleryIndex = 0;
+
+function renderGalleryPhoto() {
+  if (!galleryPhotos.length) {
+    galleryCanvas.classList.add('hidden');
+    galleryEmpty.classList.remove('hidden');
+    galleryCounter.textContent = '';
+    return;
+  }
+  galleryCanvas.classList.remove('hidden');
+  galleryEmpty.classList.add('hidden');
+  const photo = galleryPhotos[galleryIndex];
+  const img = new Image();
+  img.onload = () => {
+    galleryCanvas.width = img.width;
+    galleryCanvas.height = img.height;
+    galleryCanvas.getContext('2d').drawImage(img, 0, 0);
+  };
+  img.src = photo.dataUrl;
+  galleryCounter.textContent = `${galleryIndex + 1} / ${galleryPhotos.length}`;
+}
+
+async function openGallery() {
+  const stored = await loadGallery();
+  galleryPhotos = stored.slice().reverse(); // newest first
+  galleryIndex = 0;
+  liveView.classList.add('hidden');
+  reviewView.classList.add('hidden');
+  galleryView.classList.remove('hidden');
+  appView = 'gallery';
+  renderGalleryPhoto();
+}
+
+function closeGallery() {
+  galleryView.classList.add('hidden');
+  liveView.classList.remove('hidden');
+  appView = 'live';
+}
+
+function galleryNav(delta) {
+  if (!galleryPhotos.length) return;
+  galleryIndex = (galleryIndex + delta + galleryPhotos.length) % galleryPhotos.length;
+  renderGalleryPhoto();
+}
+
+async function deleteCurrentPhoto() {
+  if (!galleryPhotos.length) return;
+  const id = galleryPhotos[galleryIndex].id;
+  const stored = (await loadGallery()).filter((p) => p.id !== id);
+  await saveGallery(stored);
+  galleryPhotos = stored.slice().reverse();
+  if (galleryIndex >= galleryPhotos.length) galleryIndex = Math.max(0, galleryPhotos.length - 1);
+  renderGalleryPhoto();
+}
+
+galleryBtn.addEventListener('click', openGallery);
+galleryBackBtn.addEventListener('click', closeGallery);
+galleryDeleteBtn.addEventListener('click', deleteCurrentPhoto);
+gallerySaveBtn.addEventListener('click', () => {
+  if (!galleryPhotos.length) return;
+  const photo = galleryPhotos[galleryIndex];
+  downloadDataUrl(photo.dataUrl, `shaheer-cam-${photo.filter}-${photo.id}.jpg`);
+});
+
 // ---------- filter switching ----------
 function switchFilter() {
+  if (appView !== 'live') return;
   const idx = FILTER_NAMES.indexOf(currentFilter);
   currentFilter = FILTER_NAMES[(idx + 1) % FILTER_NAMES.length];
   filterLabel.textContent = currentFilter;
@@ -223,15 +352,23 @@ shutterBtn.addEventListener('click', capturePhoto);
 // ---------- R1 hardware controls ----------
 // R1 creations expose the scroll wheel and side button as DOM events.
 // Wired as best-effort extras; touch controls above remain the primary path.
-window.addEventListener('scrollUp', switchFilter);
-window.addEventListener('scrollDown', switchFilter);
-window.addEventListener('sideClick', capturePhoto);
+function onScroll(delta) {
+  if (appView === 'gallery') galleryNav(delta);
+  else if (appView === 'live') switchFilter();
+}
+window.addEventListener('scrollUp', () => onScroll(-1));
+window.addEventListener('scrollDown', () => onScroll(1));
+window.addEventListener('sideClick', () => {
+  if (appView === 'live') capturePhoto();
+});
 
 // keyboard fallback, useful when testing in a normal browser
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); capturePhoto(); }
-  else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') switchFilter();
+  else if (e.code === 'ArrowLeft') onScroll(-1);
+  else if (e.code === 'ArrowRight') onScroll(1);
   else if (e.key === 'r') rotateBtn.click();
+  else if (e.key === 'Escape') { if (appView === 'gallery') closeGallery(); }
 });
 
 // ---------- camera init ----------

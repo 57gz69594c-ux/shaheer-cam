@@ -1,8 +1,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
 html, body {
-  width: 100%;
-  height: 100%;
+  width: 240px;
+  height: 282px;
   background: #000;
   overflow: hidden;
   touch-action: none;
@@ -11,11 +11,12 @@ html, body {
 
 #app {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: 240px;
+  height: 282px;
+  overflow: hidden;
 }
 
-#liveView, #reviewView {
+#liveView, #reviewView, #galleryView {
   position: absolute;
   inset: 0;
 }
@@ -24,7 +25,7 @@ html, body {
 
 #cam { display: none; }
 
-#preview, #result {
+#preview, #result, #galleryCanvas {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -60,6 +61,69 @@ html, body {
   text-align: center;
   padding: 0;
 }
+
+#galleryBtn {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,.4);
+  color: #fff;
+  font-size: 13px;
+  line-height: 28px;
+  text-align: center;
+  padding: 0;
+}
+
+#galleryEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,.5);
+  font-size: 12px;
+  text-align: center;
+  padding: 0 24px;
+}
+
+#galleryCounter {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 12px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+
+#galleryControls {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 10px;
+}
+
+#galleryControls button {
+  flex: 1;
+  height: 34px;
+  border: none;
+  border-radius: 17px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 4px;
+  background: rgba(255,255,255,.2);
+  color: #fff;
+}
+
+#gallerySaveBtn { background: #fff; color: #000; }
+#galleryDeleteBtn { background: rgba(200,60,50,.6); }
 
 #controls {
   position: absolute;

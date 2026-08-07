@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="viewport" content="width=240, initial-scale=1.0, user-scalable=no" />
 <title>Shaheer Cam</title>
 <link rel="stylesheet" href="style.css" />
 </head>
@@ -16,6 +16,7 @@
 
       <div id="filterLabel">35mm</div>
       <button id="rotateBtn" title="fix orientation">⟳</button>
+      <button id="galleryBtn" title="view saved photos">▤</button>
 
       <div id="controls">
         <button id="switchBtn" aria-label="switch film">◀ ▶</button>
@@ -30,6 +31,18 @@
       <div id="reviewControls">
         <button id="retakeBtn">Retake</button>
         <button id="saveBtn">Save</button>
+      </div>
+    </div>
+
+    <!-- saved photo gallery -->
+    <div id="galleryView" class="hidden">
+      <canvas id="galleryCanvas"></canvas>
+      <div id="galleryEmpty" class="hidden">No photos saved yet</div>
+      <div id="galleryCounter"></div>
+      <div id="galleryControls">
+        <button id="galleryBackBtn">Back</button>
+        <button id="galleryDeleteBtn">Delete</button>
+        <button id="gallerySaveBtn">Save</button>
       </div>
     </div>
 
