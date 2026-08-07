@@ -32,7 +32,7 @@ html, body {
 
 #cam { display: none; }
 
-#preview, #resultVideo {
+#preview, #resultVideo, #galleryVideo {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -127,6 +127,72 @@ html, body {
   padding: 0 24px;
 }
 
+#galleryGridBtn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,.4);
+  color: #fff;
+  font-size: 14px;
+  line-height: 28px;
+  text-align: center;
+  padding: 0;
+  z-index: 5;
+}
+#galleryGridBtn.active {
+  background: #D2691E;
+}
+
+#galleryGrid {
+  position: absolute;
+  top: 30px;
+  bottom: 50px;
+  left: 4px;
+  right: 4px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.gridThumb {
+  position: relative;
+  aspect-ratio: 1;
+  background: #111 center / cover no-repeat;
+  border-radius: 4px;
+  border: 2px solid transparent;
+}
+.gridThumb.selected {
+  border-color: #fff;
+}
+.gridThumb.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  color: #000;
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+}
+.gridThumb.video::before {
+  content: '▶';
+  position: absolute;
+  bottom: 3px;
+  left: 4px;
+  color: #fff;
+  font-size: 9px;
+  text-shadow: 0 1px 2px rgba(0,0,0,.9);
+}
+
 #galleryCounter {
   position: absolute;
   top: 10px;
@@ -162,6 +228,7 @@ html, body {
 
 #gallerySaveBtn { background: #fff; color: #000; }
 #galleryDeleteBtn { background: rgba(200,60,50,.6); }
+#galleryDeleteBtn.disabled { background: rgba(255,255,255,.1); color: rgba(255,255,255,.35); }
 
 #controls {
   position: absolute;

@@ -15,6 +15,9 @@ const errorBox = document.getElementById('errorBox');
 const galleryBtn = document.getElementById('galleryBtn');
 const galleryView = document.getElementById('galleryView');
 const galleryCanvas = document.getElementById('galleryCanvas');
+const galleryVideo = document.getElementById('galleryVideo');
+const galleryGrid = document.getElementById('galleryGrid');
+const galleryGridBtn = document.getElementById('galleryGridBtn');
 const galleryEmpty = document.getElementById('galleryEmpty');
 const galleryCounter = document.getElementById('galleryCounter');
 const galleryBackBtn = document.getElementById('galleryBackBtn');
@@ -521,10 +524,72 @@ async function saveGallery(list) {
   } catch (e) { /* storage full or unavailable — photo just won't persist */ }
 }
 
-async function addToGallery(dataUrl, filterName) {
+// Video blobs go in IndexedDB, not the base64 metadata store above — same
+// reasoning as the sibling r1-video-creation app: a single clip would blow
+// past what fits in creationStorage/localStorage. Each gallery entry for a
+// video only carries a small thumbnail (one graded frame, JPEG) plus an id
+// that points at the real blob here.
+const VIDEO_DB_NAME = 'r1-film-camera-videos';
+const VIDEO_STORE = 'videos';
+let videoDbPromise = null;
+function openVideoDb() {
+  if (videoDbPromise) return videoDbPromise;
+  videoDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(VIDEO_DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(VIDEO_STORE, { keyPath: 'id' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return videoDbPromise;
+}
+async function saveVideoBlob(id, blob, mime) {
+  const db = await openVideoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(VIDEO_STORE, 'readwrite');
+    tx.objectStore(VIDEO_STORE).put({ id, blob, mime });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadVideoBlob(id) {
+  const db = await openVideoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(VIDEO_STORE, 'readonly');
+    const req = tx.objectStore(VIDEO_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function deleteVideoBlob(id) {
+  const db = await openVideoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(VIDEO_STORE, 'readwrite');
+    tx.objectStore(VIDEO_STORE).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function trimGallery(list) {
+  while (list.length > MAX_GALLERY) {
+    const removed = list.shift();
+    if (removed && removed.type === 'video') await deleteVideoBlob(removed.id);
+  }
+}
+
+async function addPhotoToGallery(dataUrl, filterName) {
   const list = await loadGallery();
-  list.push({ id: Date.now(), filter: filterName, dataUrl });
-  while (list.length > MAX_GALLERY) list.shift();
+  list.push({ id: Date.now(), type: 'photo', filter: filterName, dataUrl });
+  await trimGallery(list);
+  await saveGallery(list);
+}
+
+async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
+  const id = Date.now();
+  await saveVideoBlob(id, blob, mime);
+  const list = await loadGallery();
+  list.push({ id, type: 'video', filter: filterName, mime, thumbDataUrl });
+  await trimGallery(list);
   await saveGallery(list);
 }
 
@@ -601,7 +666,7 @@ function capturePhoto() {
   resultCanvas.height = finalShot.height;
   resultCanvas.getContext('2d').drawImage(finalShot, 0, 0);
 
-  addToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
+  addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
   enterReview('photo');
 }
 
@@ -648,9 +713,9 @@ saveBtn.addEventListener('click', () => {
 
 // ---------- video recording ----------
 // Recorded via MediaRecorder on a canvas stream that's graded frame-by-frame
-// in real time. Capped at 10s and not added to the photo gallery — the
-// gallery stores everything as base64 in on-device storage, and even a short
-// clip would be far too large for that (and for emailing).
+// in real time. Capped at 10s. Saved into the gallery like photos (via
+// addVideoToGallery, IndexedDB-backed — see above), just not emailable —
+// EmailJS has no room for video-sized attachments.
 const MAX_RECORD_MS = 10000;
 const recordCanvas = document.createElement('canvas');
 const recordCtx = recordCanvas.getContext('2d');
@@ -749,6 +814,9 @@ function onRecordingStopped() {
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
   resultVideo.src = currentVideoUrl;
+  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail.
+  const thumbDataUrl = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
+  addVideoToGallery(currentVideoBlob, mime, currentFilter, thumbDataUrl);
   enterReview('video');
 }
 
@@ -762,47 +830,146 @@ function toggleRecording() {
 shutterBtn.addEventListener('click', toggleRecording);
 
 // ---------- gallery view ----------
+// Two sub-modes sharing one bottom button row: 'single' swipes through items
+// one at a time (photo or playable video); 'grid' shows thumbnails and lets
+// you tap to multi-select for a quick bulk delete.
 let galleryPhotos = [];
 let galleryIndex = 0;
+let galleryMode = 'single'; // 'single' | 'grid'
+let selectedIds = new Set();
+let galleryVideoObjUrl = null;
+
+function currentGalleryItem() {
+  return galleryPhotos[galleryIndex] || null;
+}
+
+function releaseGalleryVideo() {
+  if (galleryVideoObjUrl) {
+    URL.revokeObjectURL(galleryVideoObjUrl);
+    galleryVideoObjUrl = null;
+  }
+  galleryVideo.pause();
+  galleryVideo.removeAttribute('src');
+}
 
 function renderGalleryPhoto() {
+  releaseGalleryVideo();
   if (!galleryPhotos.length) {
     galleryCanvas.classList.add('hidden');
+    galleryVideo.classList.add('hidden');
+    galleryEmpty.classList.remove('hidden');
+    galleryCounter.textContent = '';
+    galleryEmailBtn.classList.remove('hidden');
+    return;
+  }
+  galleryEmpty.classList.add('hidden');
+  const item = currentGalleryItem();
+  galleryCounter.textContent = `${galleryIndex + 1} / ${galleryPhotos.length}`;
+  galleryEmailBtn.classList.toggle('hidden', item.type === 'video'); // video too large for EmailJS
+
+  if (item.type === 'video') {
+    galleryCanvas.classList.add('hidden');
+    galleryVideo.classList.remove('hidden');
+    loadVideoBlob(item.id).then((rec) => {
+      if (!rec || currentGalleryItem() !== item) return;
+      galleryVideoObjUrl = URL.createObjectURL(rec.blob);
+      galleryVideo.src = galleryVideoObjUrl;
+    });
+  } else {
+    galleryVideo.classList.add('hidden');
+    galleryCanvas.classList.remove('hidden');
+    const img = new Image();
+    img.onload = () => {
+      galleryCanvas.width = img.width;
+      galleryCanvas.height = img.height;
+      galleryCanvas.getContext('2d').drawImage(img, 0, 0);
+    };
+    img.src = item.dataUrl;
+  }
+}
+
+function renderGalleryGrid() {
+  galleryGrid.innerHTML = '';
+  if (!galleryPhotos.length) {
     galleryEmpty.classList.remove('hidden');
     galleryCounter.textContent = '';
     return;
   }
-  galleryCanvas.classList.remove('hidden');
   galleryEmpty.classList.add('hidden');
-  const photo = galleryPhotos[galleryIndex];
-  const img = new Image();
-  img.onload = () => {
-    galleryCanvas.width = img.width;
-    galleryCanvas.height = img.height;
-    galleryCanvas.getContext('2d').drawImage(img, 0, 0);
-  };
-  img.src = photo.dataUrl;
-  galleryCounter.textContent = `${galleryIndex + 1} / ${galleryPhotos.length}`;
+  galleryCounter.textContent = selectedIds.size ? `${selectedIds.size} selected` : `${galleryPhotos.length} items`;
+  galleryPhotos.forEach((item) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'gridThumb' + (item.type === 'video' ? ' video' : '') + (selectedIds.has(item.id) ? ' selected' : '');
+    thumb.style.backgroundImage = `url(${item.type === 'video' ? item.thumbDataUrl : item.dataUrl})`;
+    thumb.addEventListener('click', () => {
+      if (selectedIds.has(item.id)) selectedIds.delete(item.id); else selectedIds.add(item.id);
+      renderGalleryGrid();
+      updateDeleteBtnState();
+    });
+    galleryGrid.appendChild(thumb);
+  });
+}
+
+function updateDeleteBtnState() {
+  if (galleryMode !== 'grid') {
+    galleryDeleteBtn.textContent = 'Delete';
+    galleryDeleteBtn.classList.remove('disabled');
+    return;
+  }
+  galleryDeleteBtn.textContent = selectedIds.size ? `Delete (${selectedIds.size})` : 'Delete';
+  galleryDeleteBtn.classList.toggle('disabled', !selectedIds.size);
+}
+
+function renderGalleryView() {
+  if (galleryMode === 'grid') {
+    galleryCanvas.classList.add('hidden');
+    galleryVideo.classList.add('hidden');
+    releaseGalleryVideo();
+    galleryGrid.classList.remove('hidden');
+    galleryEmailBtn.classList.add('hidden');
+    gallerySaveBtn.classList.add('hidden');
+    renderGalleryGrid();
+  } else {
+    galleryGrid.classList.add('hidden');
+    gallerySaveBtn.classList.remove('hidden');
+    renderGalleryPhoto();
+  }
+  updateDeleteBtnState();
 }
 
 async function openGallery() {
   const stored = await loadGallery();
   galleryPhotos = stored.slice().reverse(); // newest first
   galleryIndex = 0;
+  galleryMode = 'single';
+  selectedIds.clear();
+  galleryGridBtn.classList.remove('active');
   liveView.classList.add('hidden');
   reviewView.classList.add('hidden');
   galleryView.classList.remove('hidden');
   appView = 'gallery';
-  renderGalleryPhoto();
+  renderGalleryView();
 }
 
 function closeGallery() {
+  releaseGalleryVideo();
   galleryView.classList.add('hidden');
   liveView.classList.remove('hidden');
   appView = 'live';
 }
 
+function toggleGalleryGrid() {
+  galleryMode = galleryMode === 'grid' ? 'single' : 'grid';
+  galleryGridBtn.classList.toggle('active', galleryMode === 'grid');
+  if (galleryMode === 'single' && galleryIndex >= galleryPhotos.length) galleryIndex = Math.max(0, galleryPhotos.length - 1);
+  renderGalleryView();
+}
+
 function galleryNav(delta) {
+  if (galleryMode === 'grid') {
+    galleryGrid.scrollTop += delta * 90;
+    return;
+  }
   if (!galleryPhotos.length) return;
   galleryIndex = (galleryIndex + delta + galleryPhotos.length) % galleryPhotos.length;
   renderGalleryPhoto();
@@ -810,25 +977,49 @@ function galleryNav(delta) {
 
 async function deleteCurrentPhoto() {
   if (!galleryPhotos.length) return;
-  const id = galleryPhotos[galleryIndex].id;
-  const stored = (await loadGallery()).filter((p) => p.id !== id);
+  const item = currentGalleryItem();
+  if (item.type === 'video') await deleteVideoBlob(item.id);
+  const stored = (await loadGallery()).filter((p) => p.id !== item.id);
   await saveGallery(stored);
   galleryPhotos = stored.slice().reverse();
   if (galleryIndex >= galleryPhotos.length) galleryIndex = Math.max(0, galleryPhotos.length - 1);
   renderGalleryPhoto();
 }
 
+async function deleteSelectedPhotos() {
+  if (!selectedIds.size) return;
+  const stored = await loadGallery();
+  const toDelete = stored.filter((p) => selectedIds.has(p.id));
+  for (const p of toDelete) if (p.type === 'video') await deleteVideoBlob(p.id);
+  const remaining = stored.filter((p) => !selectedIds.has(p.id));
+  await saveGallery(remaining);
+  galleryPhotos = remaining.slice().reverse();
+  selectedIds.clear();
+  renderGalleryGrid();
+  updateDeleteBtnState();
+}
+
 galleryBtn.addEventListener('click', openGallery);
 galleryBackBtn.addEventListener('click', closeGallery);
-galleryDeleteBtn.addEventListener('click', deleteCurrentPhoto);
-gallerySaveBtn.addEventListener('click', () => {
-  if (!galleryPhotos.length) return;
-  const photo = galleryPhotos[galleryIndex];
-  downloadDataUrl(photo.dataUrl, `film-camera-${slugify(photo.filter)}-${photo.id}.jpg`);
+galleryGridBtn.addEventListener('click', toggleGalleryGrid);
+galleryDeleteBtn.addEventListener('click', () => {
+  if (galleryMode === 'grid') deleteSelectedPhotos(); else deleteCurrentPhoto();
+});
+gallerySaveBtn.addEventListener('click', async () => {
+  const item = currentGalleryItem();
+  if (!item) return;
+  if (item.type === 'video') {
+    const rec = await loadVideoBlob(item.id);
+    if (!rec) return;
+    downloadDataUrl(URL.createObjectURL(rec.blob), `film-camera-${slugify(item.filter)}-${item.id}.${rec.mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm'}`);
+    return;
+  }
+  downloadDataUrl(item.dataUrl, `film-camera-${slugify(item.filter)}-${item.id}.jpg`);
 });
 galleryEmailBtn.addEventListener('click', () => {
-  if (!galleryPhotos.length) return;
-  emailPhoto(galleryPhotos[galleryIndex].dataUrl, galleryEmailBtn);
+  const item = currentGalleryItem();
+  if (!item || item.type === 'video') return;
+  emailPhoto(item.dataUrl, galleryEmailBtn);
 });
 
 // ---------- filter switching ----------
