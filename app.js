@@ -37,7 +37,7 @@ let appView = 'live'; // 'live' | 'review' | 'gallery'
 // ---------- email (EmailJS — sends the photo as an attachment to your own inbox) ----------
 const EMAILJS_SERVICE_ID = 'service_349fg0q';
 const EMAILJS_TEMPLATE_ID = 'template_kaj2dyv';
-const EMAILJS_PUBLIC_KEY = 'w4pGSLR6hhtjl2tx_';
+const EMAILJS_PUBLIC_KEY = 'w4pGSLR6hhtjI2tx_';
 const EMAIL_TO = 'shaheerkhanmysteryperformer@hotmail.com';
 
 if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
