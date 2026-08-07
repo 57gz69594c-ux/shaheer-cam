@@ -65,26 +65,85 @@ const rotCanvas = document.createElement('canvas');
 const rotCtx = rotCanvas.getContext('2d');
 
 // ---------- film looks ----------
+// Each preset emulates a real film stock: a base color grade (css filter),
+// a black-lift (film shadows are never pure black), a split-tone color cast,
+// grain, a tinted vignette, and stock-specific extras (halation, light leak,
+// dust/scratches).
 const FILTERS = {
-  '35mm': {
-    css: 'contrast(1.08) saturate(0.82) sepia(0.18) brightness(1.04) hue-rotate(-6deg)',
-    grain: 0.12,
-    vignette: 0.35,
+  'Polaroid': {
+    css: 'contrast(0.97) saturate(0.95) brightness(1.07) sepia(0.10)',
+    blackLift: 'rgba(40,32,24,0.18)',
+    tint: { color: 'rgba(255,205,140,0.12)', blend: 'soft-light' },
+    grain: 0.10,
+    vignette: { strength: 0.34, color: '30,20,10' },
     lightLeak: true,
     scratches: false,
+    halation: false,
     blur: 0,
   },
-  '8mm': {
-    css: 'contrast(1.3) saturate(0.5) sepia(0.32) brightness(0.92) hue-rotate(8deg)',
-    grain: 0.24,
-    vignette: 0.55,
+  'Kodak Gold': {
+    css: 'contrast(1.16) saturate(1.35) brightness(1.03)',
+    blackLift: 'rgba(20,12,8,0.08)',
+    tint: { color: 'rgba(255,170,70,0.14)', blend: 'soft-light' },
+    grain: 0.08,
+    vignette: { strength: 0.26, color: '25,14,4' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    blur: 0,
+  },
+  'Fuji Chrome': {
+    css: 'contrast(1.12) saturate(1.0) brightness(1.0)',
+    blackLift: 'rgba(8,18,20,0.10)',
+    tint: { color: 'rgba(80,195,175,0.13)', blend: 'soft-light' },
+    grain: 0.09,
+    vignette: { strength: 0.28, color: '6,16,16' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    blur: 0,
+  },
+  'Disposable Flash': {
+    css: 'contrast(1.3) saturate(0.65) brightness(1.14)',
+    blackLift: 'rgba(30,30,30,0.10)',
+    tint: { color: 'rgba(255,255,255,0.06)', blend: 'overlay' },
+    grain: 0.26,
+    vignette: { strength: 0.55, color: '0,0,0' },
     lightLeak: false,
     scratches: true,
-    blur: 0.5,
+    halation: false,
+    blur: 0.4,
+  },
+  'Cinestill Night': {
+    css: 'contrast(1.2) saturate(0.9) brightness(0.98)',
+    blackLift: 'rgba(6,14,24,0.16)',
+    tint: { color: 'rgba(255,130,70,0.12)', blend: 'soft-light' },
+    grain: 0.13,
+    vignette: { strength: 0.4, color: '4,8,18' },
+    lightLeak: false,
+    scratches: false,
+    halation: true,
+    blur: 0,
+  },
+  'B&W Film': {
+    css: 'contrast(1.22) saturate(0) brightness(1.02)',
+    blackLift: 'rgba(25,25,25,0.10)',
+    tint: null,
+    grain: 0.20,
+    vignette: { strength: 0.42, color: '0,0,0' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    blur: 0,
   },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
-let currentFilter = '35mm';
+let currentFilter = 'Polaroid';
+filterLabel.textContent = currentFilter;
+
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
 
 // ---------- orientation ----------
 // R1 is held with the scroll wheel on top / camera at top-left, so the raw
@@ -145,17 +204,50 @@ function drawGrain(ctx, w, h, intensity) {
   ctx.restore();
 }
 
-function drawVignette(ctx, w, h, strength) {
+function drawVignette(ctx, w, h, strength, rgb) {
   const grad = ctx.createRadialGradient(
     w / 2, h / 2, Math.min(w, h) * 0.25,
     w / 2, h / 2, Math.max(w, h) * 0.75
   );
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, `rgba(0,0,0,${strength})`);
+  grad.addColorStop(0, `rgba(${rgb},0)`);
+  grad.addColorStop(1, `rgba(${rgb},${strength})`);
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+// Film shadows never crush to pure black — this lifts the floor slightly.
+function drawBlackLift(ctx, w, h, rgba) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighten';
+  ctx.fillStyle = rgba;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+// Flat color wash blended in — the classic split-tone trick for a stock's color cast.
+function drawTint(ctx, w, h, rgba, blend) {
+  ctx.save();
+  ctx.globalCompositeOperation = blend;
+  ctx.fillStyle = rgba;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+// Soft glow bloom around bright highlights (Cinestill-style halation).
+function drawHalation(ctx, w, h) {
+  const bright = document.createElement('canvas');
+  bright.width = w;
+  bright.height = h;
+  const bctx = bright.getContext('2d');
+  bctx.filter = 'brightness(1.8) contrast(3) blur(3px)';
+  bctx.drawImage(ctx.canvas, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.35;
+  ctx.drawImage(bright, 0, 0);
   ctx.restore();
 }
 
@@ -217,8 +309,11 @@ function applyFilmLook(canvas, filterName) {
   ctx.clearRect(0, 0, w, h);
   ctx.drawImage(graded, 0, 0);
 
+  if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
+  if (f.tint) drawTint(ctx, w, h, f.tint.color, f.tint.blend);
+  if (f.halation) drawHalation(ctx, w, h);
   drawGrain(ctx, w, h, f.grain);
-  drawVignette(ctx, w, h, f.vignette);
+  drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
   if (f.lightLeak) drawLightLeak(ctx, w, h);
   if (f.scratches) drawScratches(ctx, w, h);
 }
@@ -306,7 +401,7 @@ saveBtn.addEventListener('click', () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `shaheer-cam-${currentFilter}-${Date.now()}.jpg`;
+    a.download = `shaheer-cam-${slugify(currentFilter)}-${Date.now()}.jpg`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -377,7 +472,7 @@ galleryDeleteBtn.addEventListener('click', deleteCurrentPhoto);
 gallerySaveBtn.addEventListener('click', () => {
   if (!galleryPhotos.length) return;
   const photo = galleryPhotos[galleryIndex];
-  downloadDataUrl(photo.dataUrl, `shaheer-cam-${photo.filter}-${photo.id}.jpg`);
+  downloadDataUrl(photo.dataUrl, `shaheer-cam-${slugify(photo.filter)}-${photo.id}.jpg`);
 });
 galleryEmailBtn.addEventListener('click', () => {
   if (!galleryPhotos.length) return;

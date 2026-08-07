@@ -38,11 +38,14 @@ html, body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
+  max-width: 210px;
   color: #fff;
-  font-size: 13px;
-  letter-spacing: 2px;
+  font-size: 10px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   text-shadow: 0 1px 3px rgba(0,0,0,.8);
+  text-align: center;
+  white-space: nowrap;
   pointer-events: none;
 }
 
