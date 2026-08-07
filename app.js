@@ -48,6 +48,39 @@ const EMAIL_TO = 'shaheerkhanmysteryperformer@hotmail.com';
 
 if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
 
+// EmailJS's free tier caps the total request payload (roughly 50KB) — a
+// full-res capture easily blows past that, and when a request is over the
+// limit EmailJS can still report success while the oversized `photo` field
+// gets dropped, which is exactly what an "empty email" looks like from here.
+// Downscaling only the emailed copy (the saved/gallery copy stays full-res)
+// keeps every send comfortably under that ceiling.
+function scaledJpegDataUrl(sourceCanvas, maxDim, quality) {
+  const scale = Math.min(1, maxDim / Math.max(sourceCanvas.width, sourceCanvas.height));
+  if (scale >= 1) return sourceCanvas.toDataURL('image/jpeg', quality);
+  const small = document.createElement('canvas');
+  small.width = Math.round(sourceCanvas.width * scale);
+  small.height = Math.round(sourceCanvas.height * scale);
+  small.getContext('2d').drawImage(sourceCanvas, 0, 0, small.width, small.height);
+  return small.toDataURL('image/jpeg', quality);
+}
+
+function scaledJpegFromDataUrl(dataUrl, maxDim, quality) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      c.getContext('2d').drawImage(img, 0, 0);
+      resolve(scaledJpegDataUrl(c, maxDim, quality));
+    };
+    img.src = dataUrl;
+  });
+}
+
+const EMAIL_MAX_DIM = 640;
+const EMAIL_QUALITY = 0.6;
+
 function emailPhoto(dataUrl, btn) {
   if (!window.emailjs) {
     btn.textContent = 'Unavailable';
@@ -699,7 +732,7 @@ function exitReviewToLive() {
 retakeBtn.addEventListener('click', exitReviewToLive);
 
 emailBtn.addEventListener('click', () => {
-  emailPhoto(resultCanvas.toDataURL('image/jpeg', 0.7), emailBtn);
+  emailPhoto(scaledJpegDataUrl(resultCanvas, EMAIL_MAX_DIM, EMAIL_QUALITY), emailBtn);
 });
 
 saveBtn.addEventListener('click', () => {
@@ -1037,10 +1070,11 @@ gallerySaveBtn.addEventListener('click', async () => {
   }
   downloadDataUrl(item.dataUrl, `film-camera-${slugify(item.filter)}-${item.id}.jpg`);
 });
-galleryEmailBtn.addEventListener('click', () => {
+galleryEmailBtn.addEventListener('click', async () => {
   const item = currentGalleryItem();
   if (!item || item.type === 'video') return;
-  emailPhoto(item.dataUrl, galleryEmailBtn);
+  const small = await scaledJpegFromDataUrl(item.dataUrl, EMAIL_MAX_DIM, EMAIL_QUALITY);
+  emailPhoto(small, galleryEmailBtn);
 });
 
 // ---------- filter switching ----------
