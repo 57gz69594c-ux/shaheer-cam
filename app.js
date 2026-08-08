@@ -7,7 +7,7 @@ const liveView = document.getElementById('liveView');
 const reviewView = document.getElementById('reviewView');
 const filterLabel = document.getElementById('filterLabel');
 const rotateBtn = document.getElementById('rotateBtn');
-const switchBtn = document.getElementById('switchBtn');
+const filmWindow = document.getElementById('filmWindow');
 const shutterBtn = document.getElementById('shutterBtn');
 const retakeBtn = document.getElementById('retakeBtn');
 const saveBtn = document.getElementById('saveBtn');
@@ -1267,7 +1267,7 @@ function switchFilter() {
   currentFilter = FILTER_NAMES[(idx + 1) % FILTER_NAMES.length];
   updateFilterUI();
 }
-switchBtn.addEventListener('click', switchFilter);
+filmWindow.addEventListener('click', switchFilter);
 
 // ---------- R1 hardware controls ----------
 // Confirmed on-device: requesting the opposite facingMode via getUserMedia
