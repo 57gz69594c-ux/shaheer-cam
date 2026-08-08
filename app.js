@@ -849,11 +849,16 @@ saveBtn.addEventListener('click', async () => {
   currentItemSaved = true;
   if (reviewMediaType === 'video') {
     if (!currentVideoBlob) return;
-    downloadDataUrl(URL.createObjectURL(currentVideoBlob), `film-camera-${slugify(currentFilter)}-${Date.now()}.${currentVideoExt}`);
-    // addVideoToGallery reports its own success/failure — it has to actually
-    // finish (write + read back to verify) before that's known, so no toast
-    // here; a toast fired before this resolves was reporting "saved" before
-    // the save had even happened, which is exactly backwards.
+    // Deliberately NOT triggering a file download here (no downloadDataUrl
+    // call). An <a download> click for a video blob was, on this device,
+    // apparently not being honored as a download at all — instead it looks
+    // to have been handed to the native Android video player, which takes
+    // the whole screen over outside our page (explains the snap back to
+    // portrait, the gray native play button, and why only the hardware back
+    // button — which exits the app — got out of it). It also fired before
+    // the gallery save below ever got a chance to run, which is very
+    // possibly why videos never made it into the gallery either. Only the
+    // in-app gallery save happens now; it reports its own success/failure.
     await addVideoToGallery(currentVideoBlob, currentVideoBlob.type || 'video/webm', currentFilter, currentVideoThumb);
     return;
   }
@@ -1049,6 +1054,7 @@ function renderGalleryPhoto() {
   const item = currentGalleryItem();
   galleryCounter.textContent = `${galleryIndex + 1} / ${galleryPhotos.length}`;
   galleryEmailBtn.classList.toggle('hidden', item.type === 'video'); // video too large for EmailJS
+  gallerySaveBtn.classList.toggle('hidden', item.type === 'video'); // already in the gallery; see gallerySaveBtn handler for why video isn't re-downloadable
 
   if (item.type === 'video') {
     galleryCanvas.classList.add('hidden');
@@ -1191,15 +1197,14 @@ galleryGridBtn.addEventListener('click', toggleGalleryGrid);
 galleryDeleteBtn.addEventListener('click', () => {
   if (galleryMode === 'grid') deleteSelectedPhotos(); else deleteCurrentPhoto();
 });
-gallerySaveBtn.addEventListener('click', async () => {
+// Hidden entirely for video items (see renderGalleryPhoto) — a <a download>
+// click on a video blob isn't being honored as a download on this device,
+// it hands off to the native fullscreen player instead (same issue fixed
+// in the review Save button). A video reaching this button is already in
+// the gallery anyway, so there's nothing left for this one to do for it.
+gallerySaveBtn.addEventListener('click', () => {
   const item = currentGalleryItem();
-  if (!item) return;
-  if (item.type === 'video') {
-    const rec = await loadVideoBlob(item.id);
-    if (!rec) return;
-    downloadDataUrl(URL.createObjectURL(rec.blob), `film-camera-${slugify(item.filter)}-${item.id}.${rec.mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm'}`);
-    return;
-  }
+  if (!item || item.type === 'video') return;
   downloadDataUrl(item.dataUrl, `film-camera-${slugify(item.filter)}-${item.id}.jpg`);
 });
 galleryEmailBtn.addEventListener('click', async () => {
