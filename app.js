@@ -264,6 +264,25 @@ function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      const comma = result.indexOf(',');
+      resolve(comma !== -1 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+function base64ToBlob(base64, mime) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 // ---------- orientation ----------
 // R1 is held with the scroll wheel on top / camera at top-left, so the raw
 // camera frame needs a quarter turn to come out upright. Defaults to 90 but
@@ -563,46 +582,53 @@ async function saveGallery(list) {
 // reasoning as the sibling r1-video-creation app: a single clip would blow
 // past what fits in creationStorage/localStorage. Each gallery entry for a
 // video only carries a small thumbnail (one graded frame, JPEG) plus an id
-// that points at the real blob here.
-const VIDEO_DB_NAME = 'r1-film-camera-videos';
-const VIDEO_STORE = 'videos';
-let videoDbPromise = null;
-function openVideoDb() {
-  if (videoDbPromise) return videoDbPromise;
-  videoDbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(VIDEO_DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(VIDEO_STORE, { keyPath: 'id' });
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  return videoDbPromise;
+// used as the key for the full base64 video below.
+//
+// This used to be IndexedDB, which silently never came back on reopen — the
+// R1 Creations SDK only documents one persistence mechanism, creationStorage
+// (plain/secure, both base64-string key-value), and nothing about IndexedDB.
+// Whatever sandbox the device's webview runs in evidently doesn't carry
+// IndexedDB across sessions the way creationStorage is guaranteed to, so
+// video blobs are now stored the same way as everything else: base64
+// through creationStorage.plain (or localStorage off-device), one key per
+// video. There's no documented size cap, but on-device storage for a
+// plugin is finite, so a save that fails (quota, etc.) is caught and
+// reported instead of silently vanishing like before.
+function videoStorageKey(id) {
+  return `video_${id}`;
 }
 async function saveVideoBlob(id, blob, mime) {
-  const db = await openVideoDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(VIDEO_STORE, 'readwrite');
-    tx.objectStore(VIDEO_STORE).put({ id, blob, mime });
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
+  const base64 = await blobToBase64(blob);
+  const key = videoStorageKey(id);
+  try {
+    if (window.creationStorage && window.creationStorage.plain) {
+      await window.creationStorage.plain.setItem(key, JSON.stringify({ mime, base64 }));
+      return;
+    }
+  } catch (e) { /* fall through to localStorage */ }
+  localStorage.setItem(key, JSON.stringify({ mime, base64 }));
 }
 async function loadVideoBlob(id) {
-  const db = await openVideoDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(VIDEO_STORE, 'readonly');
-    const req = tx.objectStore(VIDEO_STORE).get(id);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
+  const key = videoStorageKey(id);
+  let raw = null;
+  try {
+    if (window.creationStorage && window.creationStorage.plain) {
+      raw = await window.creationStorage.plain.getItem(key);
+    }
+  } catch (e) { /* fall through to localStorage */ }
+  if (!raw) raw = localStorage.getItem(key);
+  if (!raw) return null;
+  const { mime, base64 } = JSON.parse(raw);
+  return { blob: base64ToBlob(base64, mime), mime };
 }
 async function deleteVideoBlob(id) {
-  const db = await openVideoDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(VIDEO_STORE, 'readwrite');
-    tx.objectStore(VIDEO_STORE).delete(id);
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
+  const key = videoStorageKey(id);
+  try {
+    if (window.creationStorage && window.creationStorage.plain) {
+      await window.creationStorage.plain.removeItem(key);
+    }
+  } catch (e) { /* ignore */ }
+  localStorage.removeItem(key);
 }
 
 async function trimGallery(list) {
@@ -621,7 +647,12 @@ async function addPhotoToGallery(dataUrl, filterName) {
 
 async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
   const id = Date.now();
-  await saveVideoBlob(id, blob, mime);
+  try {
+    await saveVideoBlob(id, blob, mime);
+  } catch (e) {
+    showToast('Video downloaded, but too large to fit in the in-app gallery', 3000);
+    return;
+  }
   const list = await loadGallery();
   list.push({ id, type: 'video', filter: filterName, mime, thumbDataUrl });
   await trimGallery(list);
@@ -764,11 +795,14 @@ saveBtn.addEventListener('click', () => {
 
 // ---------- video recording ----------
 // Recorded via MediaRecorder on a canvas stream that's graded frame-by-frame
-// in real time. Capped at 10s. Only written into the gallery (IndexedDB —
-// see addVideoToGallery above) once Save is pressed in review, same as
-// photos; not emailable either way — EmailJS has no room for video-sized
-// attachments.
-const MAX_RECORD_MS = 10000;
+// in real time, at the camera's own native frame rate and a high bitrate —
+// no downscaling, no duration cap. Only written into the gallery (see
+// addVideoToGallery above) once Save is pressed in review, same as photos;
+// not emailable either way — EmailJS has no room for video-sized
+// attachments. Uncapped duration means long clips can get large; that's
+// fine for Save (a real file download), but addVideoToGallery already
+// handles the in-app-gallery storage failing gracefully if a clip is too
+// big for on-device storage.
 const recordCanvas = document.createElement('canvas');
 const recordCtx = recordCanvas.getContext('2d');
 let mediaRecorder = null;
@@ -777,7 +811,6 @@ let isRecording = false;
 let recordRAF = null;
 let recordStartTime = 0;
 let recordTimerInterval = null;
-let recordAutoStopTimer = null;
 
 function pickVideoMimeType() {
   if (!window.MediaRecorder) return '';
@@ -795,6 +828,14 @@ function pickVideoMimeType() {
   return '';
 }
 
+// Record at whatever frame rate the camera itself reports, rather than a
+// fixed guess, so playback is as smooth as the sensor actually supports.
+function getCameraFrameRate() {
+  const track = cameraStream && cameraStream.getVideoTracks()[0];
+  const settings = track && track.getSettings ? track.getSettings() : null;
+  return (settings && settings.frameRate) ? Math.round(settings.frameRate) : 30;
+}
+
 function recordFrameLoop() {
   if (!isRecording) return;
   if (rotCanvas.width) {
@@ -807,7 +848,8 @@ function recordFrameLoop() {
 
 function updateRecTimer() {
   const secs = Math.floor((Date.now() - recordStartTime) / 1000);
-  recIndicator.textContent = `● REC 0:${String(secs).padStart(2, '0')}`;
+  const mins = Math.floor(secs / 60);
+  recIndicator.textContent = `● REC ${mins}:${String(secs % 60).padStart(2, '0')}`;
 }
 
 function startRecording() {
@@ -819,7 +861,8 @@ function startRecording() {
   const mimeType = pickVideoMimeType();
   recordCanvas.width = rotCanvas.width;
   recordCanvas.height = rotCanvas.height;
-  const stream = recordCanvas.captureStream(24);
+  const fps = getCameraFrameRate();
+  const stream = recordCanvas.captureStream(fps);
   const audioTrack = micStream && micStream.getAudioTracks()[0];
   if (audioTrack) {
     stream.addTrack(audioTrack);
@@ -828,7 +871,11 @@ function startRecording() {
   }
   recordedChunks = [];
   try {
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    mediaRecorder = new MediaRecorder(stream, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: 8000000,
+      audioBitsPerSecond: 128000,
+    });
   } catch (e) {
     showToast('Could not start recording: ' + e.message);
     return;
@@ -846,13 +893,11 @@ function startRecording() {
   updateRecTimer();
   recordTimerInterval = setInterval(updateRecTimer, 500);
   recordRAF = requestAnimationFrame(recordFrameLoop);
-  recordAutoStopTimer = setTimeout(stopRecording, MAX_RECORD_MS);
 }
 
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
-  clearTimeout(recordAutoStopTimer);
   clearInterval(recordTimerInterval);
   cancelAnimationFrame(recordRAF);
   recIndicator.classList.add('hidden');
@@ -928,6 +973,9 @@ function renderGalleryPhoto() {
       if (!rec || currentGalleryItem() !== item) return;
       galleryVideoObjUrl = URL.createObjectURL(rec.blob);
       galleryVideo.src = galleryVideoObjUrl;
+    }).catch((err) => {
+      if (currentGalleryItem() === item) showToast('Could not load this video', 2000);
+      console.error('loadVideoBlob failed:', err);
     });
   } else {
     galleryVideo.classList.add('hidden');
