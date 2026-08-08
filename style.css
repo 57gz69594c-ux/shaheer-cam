@@ -9,20 +9,16 @@ html, body {
   font-family: -apple-system, Helvetica, Arial, sans-serif;
 }
 
-/* EXPERIMENTAL: no rotation (0deg) — the 4th orientation. Like the 180deg
-   test, this 282x240 box doesn't match the 240x282 physical screen without
-   a 90deg-type rotation, so expect ~21px cropped off the left/right edges
-   and ~21px of black bars top/bottom. The point of this test is purely to
-   check whether the UI/text reads right-side-up (not sideways) — the
-   cropping is a separate, fixable problem once we know the base
-   orientation is correct. */
+/* Whole app UI (camera view, controls, menus) rendered as a 282x240
+   landscape canvas then rotated 90deg clockwise to fill the 240x282
+   physical screen — the rotated bounding box matches the screen exactly. */
 #app {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 282px;
   height: 240px;
-  transform: translate(-50%, -50%) rotate(0deg);
+  transform: translate(-50%, -50%) rotate(90deg);
   transform-origin: center center;
   overflow: hidden;
 }
