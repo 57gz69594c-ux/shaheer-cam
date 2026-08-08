@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=240, initial-scale=1.0, user-scalable=no" />
 <title>Film Camera</title>
-<link rel="stylesheet" href="style.css?v=15" />
+<link rel="stylesheet" href="style.css?v=16" />
 </head>
 <body>
   <div id="app">
@@ -14,7 +14,7 @@
       <canvas id="preview"></canvas>
       <video id="cam" playsinline muted autoplay></video>
 
-      <div id="filterLabel">Polaroid</div>
+      <div id="filterLabel">Cinestill Night</div>
       <div id="recIndicator" class="hidden">&#9679; REC 0:00</div>
       <button id="rotateBtn" title="fix orientation">⟳</button>
       <button id="galleryBtn" title="view saved photos">▤</button>
@@ -29,7 +29,7 @@
     <!-- captured photo/video review -->
     <div id="reviewView" class="hidden">
       <canvas id="result"></canvas>
-      <video id="resultVideo" class="hidden" playsinline controls></video>
+      <video id="resultVideo" class="hidden" playsinline></video>
       <div id="reviewControls">
         <button id="retakeBtn">Back</button>
         <button id="emailBtn">Email</button>
@@ -40,7 +40,7 @@
     <!-- saved photo/video gallery -->
     <div id="galleryView" class="hidden">
       <canvas id="galleryCanvas"></canvas>
-      <video id="galleryVideo" class="hidden" playsinline controls></video>
+      <video id="galleryVideo" class="hidden" playsinline></video>
       <div id="galleryGrid" class="hidden"></div>
       <div id="galleryEmpty" class="hidden">No photos saved yet</div>
       <div id="galleryCounter"></div>
@@ -58,6 +58,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js?v=18"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

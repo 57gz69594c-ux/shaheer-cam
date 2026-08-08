@@ -129,6 +129,18 @@ let micStream = null;
 // `haze` = a soft mist/glow bloomed out of the highlights (not every stock
 // gets it — only the ones where that hazy, dreamy vintage glow is authentic).
 const FILTERS = {
+  'Cinestill Night': {
+    css: 'contrast(1.3) saturate(0.9) brightness(0.92) hue-rotate(6deg)',
+    blackLift: 'rgba(4,10,22,0.24)',
+    tint: { color: 'rgba(255,110,50,0.18)', blend: 'soft-light' },
+    grain: 0.15,
+    vignette: { strength: 0.44, color: '2,6,20' },
+    lightLeak: false,
+    scratches: false,
+    halation: true,
+    haze: true,
+    blur: 0,
+  },
   'Polaroid': {
     css: 'contrast(0.82) saturate(0.92) brightness(1.18) sepia(0.28) hue-rotate(-6deg)',
     blackLift: 'rgba(52,42,26,0.32)',
@@ -139,6 +151,54 @@ const FILTERS = {
     grain: 0.16,
     vignette: { strength: 0.4, color: '40,28,14' },
     lightLeak: true,
+    scratches: false,
+    halation: false,
+    haze: true,
+    blur: 0.4,
+  },
+  // Three more in the same "amazing color, hazy film glow" family as the
+  // two favorites above — each pushed toward a distinct mood/palette rather
+  // than being a minor variation on Cinestill Night or Polaroid.
+  'Golden Hour': {
+    css: 'contrast(1.08) saturate(1.35) brightness(1.1) hue-rotate(-4deg)',
+    blackLift: 'rgba(40,24,8,0.14)',
+    tint: [
+      { color: 'rgba(255,176,64,0.22)', blend: 'soft-light' },
+      { color: 'rgba(255,90,20,0.08)', blend: 'overlay' },
+    ],
+    grain: 0.1,
+    vignette: { strength: 0.3, color: '40,20,4' },
+    lightLeak: false,
+    scratches: false,
+    halation: true,
+    haze: true,
+    blur: 0.15,
+  },
+  'Neon Dusk': {
+    css: 'contrast(1.28) saturate(1.5) brightness(0.96) hue-rotate(18deg)',
+    blackLift: 'rgba(10,4,26,0.18)',
+    tint: [
+      { color: 'rgba(255,40,160,0.16)', blend: 'soft-light' },
+      { color: 'rgba(40,200,255,0.14)', blend: 'screen' },
+    ],
+    grain: 0.12,
+    vignette: { strength: 0.5, color: '8,2,20' },
+    lightLeak: false,
+    scratches: false,
+    halation: true,
+    haze: true,
+    blur: 0,
+  },
+  'Dream Haze': {
+    css: 'contrast(0.88) saturate(0.92) brightness(1.16) hue-rotate(-8deg)',
+    blackLift: 'rgba(48,36,44,0.22)',
+    tint: [
+      { color: 'rgba(255,200,230,0.2)', blend: 'soft-light' },
+      { color: 'rgba(190,190,255,0.12)', blend: 'screen' },
+    ],
+    grain: 0.08,
+    vignette: { strength: 0.2, color: '40,30,44' },
+    lightLeak: false,
     scratches: false,
     halation: false,
     haze: true,
@@ -231,18 +291,6 @@ const FILTERS = {
     haze: false,
     blur: 0.5,
   },
-  'Cinestill Night': {
-    css: 'contrast(1.3) saturate(0.9) brightness(0.92) hue-rotate(6deg)',
-    blackLift: 'rgba(4,10,22,0.24)',
-    tint: { color: 'rgba(255,110,50,0.18)', blend: 'soft-light' },
-    grain: 0.15,
-    vignette: { strength: 0.44, color: '2,6,20' },
-    lightLeak: false,
-    scratches: false,
-    halation: true,
-    haze: true,
-    blur: 0,
-  },
   'B&W Film': {
     css: 'contrast(1.4) saturate(0) brightness(1.0)',
     blackLift: 'rgba(20,20,20,0.14)',
@@ -257,7 +305,7 @@ const FILTERS = {
   },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
-let currentFilter = 'Polaroid';
+let currentFilter = 'Cinestill Night';
 filterLabel.textContent = currentFilter;
 
 function slugify(name) {
@@ -649,7 +697,19 @@ async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
   const id = Date.now();
   try {
     await saveVideoBlob(id, blob, mime);
+    // Read it straight back and compare size — this is the only way to catch
+    // a storage bridge that "succeeds" while silently truncating or
+    // corrupting an oversized payload. Without this check that failure mode
+    // produced exactly what got reported: a gallery entry that exists but
+    // is unplayable (a blank/broken video). If it doesn't verify, don't add
+    // the entry at all — the file is still safe via the regular download.
+    const verify = await loadVideoBlob(id);
+    if (!verify || !verify.blob || verify.blob.size !== blob.size) {
+      throw new Error('saved video failed round-trip verification');
+    }
   } catch (e) {
+    console.error('Video gallery save failed:', e);
+    deleteVideoBlob(id).catch(() => {});
     showToast('Video downloaded, but too large to fit in the in-app gallery', 3000);
     return;
   }
@@ -701,6 +761,19 @@ function downloadDataUrl(dataUrl, filename) {
   a.click();
   a.remove();
 }
+
+// Native <video controls> was covering/blocking our own Back button in both
+// the review and gallery screens (the browser's own control bar and our
+// bottom button row occupy the same strip of screen). Removed `controls`
+// from both video elements in favor of this: tap the video to toggle
+// play/pause, leaving our custom button row as the only bottom UI.
+function wireVideoTapToggle(videoEl) {
+  videoEl.addEventListener('click', () => {
+    if (videoEl.paused) videoEl.play().catch(() => {}); else videoEl.pause();
+  });
+}
+wireVideoTapToggle(resultVideo);
+wireVideoTapToggle(galleryVideo);
 
 // ---------- capture / review flow ----------
 // Nothing is written to the gallery at capture time anymore — a shot only
@@ -913,6 +986,7 @@ function onRecordingStopped() {
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
   resultVideo.src = currentVideoUrl;
+  resultVideo.play().catch(() => {});
   // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
   // held in memory until Save actually writes it (and the video) to the gallery.
   currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
@@ -973,6 +1047,7 @@ function renderGalleryPhoto() {
       if (!rec || currentGalleryItem() !== item) return;
       galleryVideoObjUrl = URL.createObjectURL(rec.blob);
       galleryVideo.src = galleryVideoObjUrl;
+      galleryVideo.play().catch(() => {});
     }).catch((err) => {
       if (currentGalleryItem() === item) showToast('Could not load this video', 2000);
       console.error('loadVideoBlob failed:', err);

@@ -211,6 +211,7 @@ html, body {
   display: flex;
   justify-content: space-around;
   padding: 0 10px;
+  z-index: 20;
 }
 
 #galleryControls button {
@@ -298,6 +299,7 @@ html, body {
   display: flex;
   justify-content: space-around;
   padding: 0 10px;
+  z-index: 20;
 }
 
 #reviewControls button {
