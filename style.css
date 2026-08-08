@@ -10,7 +10,7 @@ html, body {
 }
 
 /* Whole app UI (camera view, controls, menus) rendered as a 282x240
-   landscape canvas then rotated 90deg clockwise to fill the 240x282
+   landscape canvas then rotated 90deg counterclockwise to fill the 240x282
    physical screen — the rotated bounding box matches the screen exactly. */
 #app {
   position: absolute;
@@ -18,7 +18,7 @@ html, body {
   left: 50%;
   width: 282px;
   height: 240px;
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(-90deg);
   transform-origin: center center;
   overflow: hidden;
 }
