@@ -293,18 +293,6 @@ const FILTERS = {
     haze: false,
     blur: 0,
   },
-  'B&W Film': {
-    css: 'contrast(1.4) saturate(0) brightness(1.0)',
-    blackLift: 'rgba(20,20,20,0.14)',
-    tint: null,
-    grain: 0.26,
-    vignette: { strength: 0.48, color: '0,0,0' },
-    lightLeak: false,
-    scratches: true,
-    halation: false,
-    haze: false,
-    blur: 0,
-  },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
 let currentFilter = 'Cinestill Night';
