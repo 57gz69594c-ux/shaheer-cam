@@ -22,7 +22,6 @@ const galleryEmpty = document.getElementById('galleryEmpty');
 const galleryCounter = document.getElementById('galleryCounter');
 const galleryBackBtn = document.getElementById('galleryBackBtn');
 const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
-const gallerySaveBtn = document.getElementById('gallerySaveBtn');
 const emailBtn = document.getElementById('emailBtn');
 const galleryEmailBtn = document.getElementById('galleryEmailBtn');
 const toast = document.getElementById('toast');
@@ -829,15 +828,6 @@ function addPolaroidBorder(canvas) {
   return bordered;
 }
 
-function downloadDataUrl(dataUrl, filename) {
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
-
 // Native <video controls> was covering/blocking our own Back button in both
 // the review and gallery screens (the browser's own control bar and our
 // bottom button row occupy the same strip of screen). Removed `controls`
@@ -936,17 +926,12 @@ saveBtn.addEventListener('click', async () => {
     await addVideoToGallery(currentVideoBlob, currentVideoBlob.type || 'video/webm', currentFilter, currentVideoThumb);
     return;
   }
+  // Same fix as the video branch above, same reasoning: an <a download>
+  // click was very likely not being honored as a download on this device
+  // for photos either, handing off to a native viewer that takes the whole
+  // screen over outside our page instead — which matches "no back button"
+  // being reported here for photos too, not just video. Gallery save only.
   addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
-  resultCanvas.toBlob((blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `film-camera-${slugify(currentFilter)}-${Date.now()}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  }, 'image/jpeg', 0.92);
   showToast('Saved to gallery', 1500);
 });
 
@@ -1128,7 +1113,6 @@ function renderGalleryPhoto() {
   const item = currentGalleryItem();
   galleryCounter.textContent = `${galleryIndex + 1} / ${galleryPhotos.length}`;
   galleryEmailBtn.classList.toggle('hidden', item.type === 'video'); // video too large for EmailJS
-  gallerySaveBtn.classList.toggle('hidden', item.type === 'video'); // already in the gallery; see gallerySaveBtn handler for why video isn't re-downloadable
 
   if (item.type === 'video') {
     galleryCanvas.classList.add('hidden');
@@ -1193,11 +1177,9 @@ function renderGalleryView() {
     releaseGalleryVideo();
     galleryGrid.classList.remove('hidden');
     galleryEmailBtn.classList.add('hidden');
-    gallerySaveBtn.classList.add('hidden');
     renderGalleryGrid();
   } else {
     galleryGrid.classList.add('hidden');
-    gallerySaveBtn.classList.remove('hidden');
     renderGalleryPhoto();
   }
   updateDeleteBtnState();
@@ -1270,16 +1252,6 @@ galleryBackBtn.addEventListener('click', closeGallery);
 galleryGridBtn.addEventListener('click', toggleGalleryGrid);
 galleryDeleteBtn.addEventListener('click', () => {
   if (galleryMode === 'grid') deleteSelectedPhotos(); else deleteCurrentPhoto();
-});
-// Hidden entirely for video items (see renderGalleryPhoto) — a <a download>
-// click on a video blob isn't being honored as a download on this device,
-// it hands off to the native fullscreen player instead (same issue fixed
-// in the review Save button). A video reaching this button is already in
-// the gallery anyway, so there's nothing left for this one to do for it.
-gallerySaveBtn.addEventListener('click', () => {
-  const item = currentGalleryItem();
-  if (!item || item.type === 'video') return;
-  downloadDataUrl(item.dataUrl, `film-camera-${slugify(item.filter)}-${item.id}.jpg`);
 });
 galleryEmailBtn.addEventListener('click', async () => {
   const item = currentGalleryItem();

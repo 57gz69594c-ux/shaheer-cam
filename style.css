@@ -247,7 +247,6 @@ html, body {
   color: #fff;
 }
 
-#gallerySaveBtn { background: #fff; color: #000; }
 #galleryDeleteBtn { background: rgba(200,60,50,.6); }
 #galleryDeleteBtn.disabled { background: rgba(255,255,255,.1); color: rgba(255,255,255,.35); }
 
