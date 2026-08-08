@@ -29,7 +29,7 @@
     <!-- captured photo/video review -->
     <div id="reviewView" class="hidden">
       <canvas id="result"></canvas>
-      <video id="resultVideo" class="hidden" playsinline></video>
+      <video id="resultVideo" class="hidden" playsinline webkit-playsinline x5-playsinline></video>
       <div id="reviewControls">
         <button id="retakeBtn">Back</button>
         <button id="emailBtn">Email</button>
@@ -40,7 +40,7 @@
     <!-- saved photo/video gallery -->
     <div id="galleryView" class="hidden">
       <canvas id="galleryCanvas"></canvas>
-      <video id="galleryVideo" class="hidden" playsinline></video>
+      <video id="galleryVideo" class="hidden" playsinline webkit-playsinline x5-playsinline></video>
       <div id="galleryGrid" class="hidden"></div>
       <div id="galleryEmpty" class="hidden">No photos saved yet</div>
       <div id="galleryCounter"></div>
@@ -58,6 +58,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

@@ -710,13 +710,15 @@ async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
   } catch (e) {
     console.error('Video gallery save failed:', e);
     deleteVideoBlob(id).catch(() => {});
-    showToast('Video downloaded, but too large to fit in the in-app gallery', 3000);
+    const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
+    showToast(`Downloaded, but couldn't save to gallery (${sizeMb}MB): ${e && e.message ? e.message : 'unknown error'}`, 4000);
     return;
   }
   const list = await loadGallery();
   list.push({ id, type: 'video', filter: filterName, mime, thumbDataUrl });
   await trimGallery(list);
   await saveGallery(list);
+  showToast('Saved to gallery', 1500);
 }
 
 // ---------- Polaroid-style white border (toggle) ----------
@@ -839,7 +841,7 @@ emailBtn.addEventListener('click', () => {
   emailPhoto(scaledJpegDataUrl(resultCanvas, EMAIL_MAX_DIM, EMAIL_QUALITY), emailBtn);
 });
 
-saveBtn.addEventListener('click', () => {
+saveBtn.addEventListener('click', async () => {
   if (currentItemSaved) {
     showToast('Already saved', 1200);
     return;
@@ -847,9 +849,12 @@ saveBtn.addEventListener('click', () => {
   currentItemSaved = true;
   if (reviewMediaType === 'video') {
     if (!currentVideoBlob) return;
-    addVideoToGallery(currentVideoBlob, currentVideoBlob.type || 'video/webm', currentFilter, currentVideoThumb);
     downloadDataUrl(URL.createObjectURL(currentVideoBlob), `film-camera-${slugify(currentFilter)}-${Date.now()}.${currentVideoExt}`);
-    showToast('Saved to gallery', 1500);
+    // addVideoToGallery reports its own success/failure — it has to actually
+    // finish (write + read back to verify) before that's known, so no toast
+    // here; a toast fired before this resolves was reporting "saved" before
+    // the save had even happened, which is exactly backwards.
+    await addVideoToGallery(currentVideoBlob, currentVideoBlob.type || 'video/webm', currentFilter, currentVideoThumb);
     return;
   }
   addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
@@ -986,7 +991,12 @@ function onRecordingStopped() {
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
   resultVideo.src = currentVideoUrl;
-  resultVideo.play().catch(() => {});
+  // Not autoplaying: on some embedded WebViews, autoplaying a non-native
+  // (controls-less) <video> can trigger a native fullscreen takeover that
+  // sits outside the page entirely, which is indistinguishable from "no way
+  // back" since none of our own UI is reachable underneath it. Tap-to-play
+  // (wired below via wireVideoTapToggle) avoids ever calling play()
+  // automatically.
   // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
   // held in memory until Save actually writes it (and the video) to the gallery.
   currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
@@ -1046,8 +1056,7 @@ function renderGalleryPhoto() {
     loadVideoBlob(item.id).then((rec) => {
       if (!rec || currentGalleryItem() !== item) return;
       galleryVideoObjUrl = URL.createObjectURL(rec.blob);
-      galleryVideo.src = galleryVideoObjUrl;
-      galleryVideo.play().catch(() => {});
+      galleryVideo.src = galleryVideoObjUrl; // not autoplaying — see note in onRecordingStopped
     }).catch((err) => {
       if (currentGalleryItem() === item) showToast('Could not load this video', 2000);
       console.error('loadVideoBlob failed:', err);
