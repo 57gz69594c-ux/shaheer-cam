@@ -9,17 +9,17 @@ html, body {
   font-family: -apple-system, Helvetica, Arial, sans-serif;
 }
 
-/* Whole app UI (camera view, controls, menus) rendered as a 282x240
-   landscape canvas then rotated 90deg clockwise to fill the 240x282
-   physical screen — the rotated bounding box matches the screen exactly. */
+/* Authored natively in portrait (240x282), matching the physical screen
+   exactly, with no rotation. A rotated landscape canvas was used here
+   before, but a rotation that resizes correctly to fit this non-square
+   screen (avoiding cropping) can only ever put "up" at the left or right
+   edge, never the top — confirmed on-device (R1's status bar/back button
+   ends up sideways no matter which of the two safe rotation values is
+   used). Native portrait authoring is the only way to get both a full,
+   uncropped screen and right-side-up content at once. */
 #app {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 282px;
-  height: 240px;
-  transform: translate(-50%, -50%) rotate(90deg);
-  transform-origin: center center;
+  inset: 0;
   overflow: hidden;
 }
 
