@@ -312,17 +312,24 @@ function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result;
-      const comma = result.indexOf(',');
-      resolve(comma !== -1 ? result.slice(comma + 1) : result);
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
+// Deliberately not FileReader.readAsDataURL — that's the one thing that
+// stayed constant across three different storage strategies (IndexedDB, one
+// big creationStorage value, chunked creationStorage values) that all still
+// corrupted on readback. Photos never hit this path at all (they go through
+// canvas.toDataURL instead) and have never failed, so FileReader on a large
+// binary video Blob, on this specific webview, is the most likely remaining
+// suspect. This uses Blob.arrayBuffer() + manual byte-to-base64 conversion
+// instead, a completely different code path, chunked to avoid blowing the
+// call stack on String.fromCharCode for a large byte array.
+async function blobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 function base64ToBlob(base64, mime) {
   const binary = atob(base64);
@@ -682,6 +689,12 @@ async function storagePlainRemove(key) {
 
 async function saveVideoBlob(id, blob, mime) {
   const base64 = await blobToBase64(blob);
+  // Sanity-check the encode itself, entirely in memory, before any storage
+  // call happens — this pins down whether a future failure is the encoding
+  // step or the storage layer, instead of leaving both as suspects again.
+  if (atob(base64).length !== blob.size) {
+    throw new Error(`in-memory encode mismatch (encoded ${atob(base64).length}, expected ${blob.size})`);
+  }
   const payload = btoa(JSON.stringify({ mime, base64 }));
   const chunkCount = Math.ceil(payload.length / VIDEO_CHUNK_SIZE);
   for (let i = 0; i < chunkCount; i++) {
