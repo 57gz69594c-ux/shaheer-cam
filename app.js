@@ -831,9 +831,24 @@ function addPolaroidBorder(canvas) {
 // from both video elements in favor of this: tap the video to toggle
 // play/pause, leaving our custom button row as the only bottom UI.
 function wireVideoTapToggle(videoEl) {
+  // play() returns a promise that doesn't settle until playback actually
+  // starts decoding — on slower hardware that can take a moment. Tapping
+  // pause (or tapping play again) before it settles makes the browser
+  // reject that promise with a benign AbortError ("interrupted by a call
+  // to pause()"), which isn't a real failure. Tracking the in-flight
+  // promise lets a pause wait for it to settle instead of racing it, and
+  // AbortError is filtered out of the error toast either way.
+  let pendingPlay = null;
   videoEl.addEventListener('click', () => {
-    if (!videoEl.paused) { videoEl.pause(); return; }
-    videoEl.play().catch((err) => {
+    if (!videoEl.paused) {
+      if (pendingPlay) pendingPlay.finally(() => videoEl.pause());
+      else videoEl.pause();
+      return;
+    }
+    pendingPlay = videoEl.play();
+    pendingPlay.then(() => { pendingPlay = null; }).catch((err) => {
+      pendingPlay = null;
+      if (err && err.name === 'AbortError') return;
       console.error('video play() failed:', err);
       showToast(`Can't play video: ${err && err.message ? err.message : 'unknown error'}`, 3000);
     });
