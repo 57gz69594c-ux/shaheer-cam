@@ -604,6 +604,11 @@ function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   if (f.tint) {
     (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
   }
+  // Halation and light leaks were photo-only before — video only ever got
+  // grain, which reads as noise rather than an actual film look. Same
+  // effects the still-capture pipeline uses (applyFilmLook), just running
+  // every recorded frame too.
+  if (f.halation) drawHalation(ctx, w, h);
   if (f.haze) drawHaze(ctx, w, h);
   ensureGrainTiles(w, h);
   const tile = grainTiles[Math.floor(Math.random() * grainTiles.length)];
@@ -613,6 +618,7 @@ function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   ctx.drawImage(tile, 0, 0);
   ctx.restore();
   drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
+  if (f.lightLeak) drawLightLeak(ctx, w, h);
   if (f.scratches) drawScratches(ctx, w, h);
 }
 
@@ -1365,10 +1371,17 @@ function showError(msg) {
 // once startRecording() reads micStream.getAudioTracks()[0].
 // facingMode is `ideal`, not `exact`, so on hardware with only one camera
 // this is simply ignored rather than throwing OverconstrainedError.
+// frameRate is requested explicitly (ideal 60, floor 24) — without it the
+// camera was evidently negotiating a low default fps on its own, which is
+// very likely why recorded video came out choppy. Falls back through
+// progressively looser constraints so a camera that can't do the frameRate
+// ask still gets used rather than failing outright.
 function buildCameraAttempts() {
   const facing = getFacing();
   return [
+    { video: { facingMode: { ideal: facing }, frameRate: { ideal: 60, min: 24 } } },
     { video: { facingMode: { ideal: facing } } },
+    { video: { frameRate: { ideal: 60, min: 24 } } },
     { video: true },
   ];
 }
