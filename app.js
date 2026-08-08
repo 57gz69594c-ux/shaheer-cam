@@ -754,18 +754,27 @@ async function addPhotoToGallery(dataUrl, filterName) {
   await saveGallery(list);
 }
 
+// Byte-for-byte, not just size — a length match can still hide corruption
+// (e.g. chunks reassembled out of order) that would only surface later as
+// "saved fine, won't play." This is the only way to actually catch that
+// before the gallery entry is created instead of after.
+async function blobsMatch(a, b) {
+  if (a.size !== b.size) return false;
+  const [bufA, bufB] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
+  const bytesA = new Uint8Array(bufA);
+  const bytesB = new Uint8Array(bufB);
+  for (let i = 0; i < bytesA.length; i++) {
+    if (bytesA[i] !== bytesB[i]) return false;
+  }
+  return true;
+}
+
 async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
   const id = Date.now();
   try {
     await saveVideoBlob(id, blob, mime);
-    // Read it straight back and compare size — this is the only way to catch
-    // a storage bridge that "succeeds" while silently truncating or
-    // corrupting an oversized payload. Without this check that failure mode
-    // produced exactly what got reported: a gallery entry that exists but
-    // is unplayable (a blank/broken video). If it doesn't verify, don't add
-    // the entry at all.
     const verify = await loadVideoBlob(id);
-    if (!verify || !verify.blob || verify.blob.size !== blob.size) {
+    if (!verify || !verify.blob || !(await blobsMatch(blob, verify.blob))) {
       throw new Error('saved video failed round-trip verification');
     }
   } catch (e) {
@@ -823,7 +832,19 @@ function addPolaroidBorder(canvas) {
 // play/pause, leaving our custom button row as the only bottom UI.
 function wireVideoTapToggle(videoEl) {
   videoEl.addEventListener('click', () => {
-    if (videoEl.paused) videoEl.play().catch(() => {}); else videoEl.pause();
+    if (!videoEl.paused) { videoEl.pause(); return; }
+    videoEl.play().catch((err) => {
+      console.error('video play() failed:', err);
+      showToast(`Can't play video: ${err && err.message ? err.message : 'unknown error'}`, 3000);
+    });
+  });
+  // A play() failure that isn't a permissions/gesture issue (NotAllowedError)
+  // usually means the media itself won't decode — surface that too, since
+  // "tap play, nothing happens" was otherwise silent either way.
+  videoEl.addEventListener('error', () => {
+    const err = videoEl.error;
+    console.error('video element error:', err);
+    showToast(`Video error: ${err ? err.message || `code ${err.code}` : 'unknown'}`, 3000);
   });
 }
 wireVideoTapToggle(resultVideo);
@@ -1042,6 +1063,12 @@ function onRecordingStopped() {
   currentVideoExt = mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm';
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
+  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
+  // held in memory until Save actually writes it (and the video) to the gallery.
+  // Also used as the video's poster so it shows that frame instead of the
+  // browser's generic gray/play-button placeholder before playback starts.
+  currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
+  resultVideo.poster = currentVideoThumb;
   resultVideo.src = currentVideoUrl;
   // Not autoplaying: on some embedded WebViews, autoplaying a non-native
   // (controls-less) <video> can trigger a native fullscreen takeover that
@@ -1049,9 +1076,6 @@ function onRecordingStopped() {
   // back" since none of our own UI is reachable underneath it. Tap-to-play
   // (wired below via wireVideoTapToggle) avoids ever calling play()
   // automatically.
-  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
-  // held in memory until Save actually writes it (and the video) to the gallery.
-  currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
   enterReview('video');
 }
 
@@ -1105,6 +1129,11 @@ function renderGalleryPhoto() {
   if (item.type === 'video') {
     galleryCanvas.classList.add('hidden');
     galleryVideo.classList.remove('hidden');
+    // Without a poster, a paused <video> with no controls just shows the
+    // browser's generic gray/play-button placeholder until you tap it — the
+    // thumbnail saved at record time is exactly the "first frame preview"
+    // that placeholder should be showing instead.
+    galleryVideo.poster = item.thumbDataUrl || '';
     loadVideoBlob(item.id).then((rec) => {
       if (!rec || currentGalleryItem() !== item) return;
       galleryVideoObjUrl = URL.createObjectURL(rec.blob);
