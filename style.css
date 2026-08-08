@@ -9,16 +9,17 @@ html, body {
   font-family: -apple-system, Helvetica, Arial, sans-serif;
 }
 
-/* Whole app UI (camera view, controls, menus) rendered as a 282x240
-   landscape canvas then rotated 90deg clockwise to fill the 240x282
-   physical screen — the rotated bounding box matches the screen exactly. */
+/* EXPERIMENTAL: rotated 180deg instead of the usual 90. A 180deg rotation
+   doesn't swap width/height the way 90deg does, so this 282x240 box no
+   longer matches the 240x282 physical screen — expect ~21px cropped off
+   the left/right edges and ~21px of black bars top/bottom. */
 #app {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 282px;
   height: 240px;
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(180deg);
   transform-origin: center center;
   overflow: hidden;
 }
