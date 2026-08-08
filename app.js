@@ -702,7 +702,7 @@ async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
     // corrupting an oversized payload. Without this check that failure mode
     // produced exactly what got reported: a gallery entry that exists but
     // is unplayable (a blank/broken video). If it doesn't verify, don't add
-    // the entry at all — the file is still safe via the regular download.
+    // the entry at all.
     const verify = await loadVideoBlob(id);
     if (!verify || !verify.blob || verify.blob.size !== blob.size) {
       throw new Error('saved video failed round-trip verification');
@@ -711,7 +711,7 @@ async function addVideoToGallery(blob, mime, filterName, thumbDataUrl) {
     console.error('Video gallery save failed:', e);
     deleteVideoBlob(id).catch(() => {});
     const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
-    showToast(`Downloaded, but couldn't save to gallery (${sizeMb}MB): ${e && e.message ? e.message : 'unknown error'}`, 4000);
+    showToast(`Couldn't save video to gallery (${sizeMb}MB): ${e && e.message ? e.message : 'unknown error'}`, 6000);
     return;
   }
   const list = await loadGallery();
