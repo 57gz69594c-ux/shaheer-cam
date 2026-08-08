@@ -626,66 +626,97 @@ async function saveGallery(list) {
   } catch (e) { /* storage full or unavailable — photo just won't persist */ }
 }
 
-// Video blobs go in IndexedDB, not the base64 metadata store above — same
-// reasoning as the sibling r1-video-creation app: a single clip would blow
-// past what fits in creationStorage/localStorage. Each gallery entry for a
-// video only carries a small thumbnail (one graded frame, JPEG) plus an id
-// used as the key for the full base64 video below.
+// Video blobs go in a chunked base64 store, not the small metadata list
+// above — that list only carries a thumbnail (one graded frame, JPEG) per
+// video plus an id used as the key prefix for the full video here.
 //
-// This used to be IndexedDB, which silently never came back on reopen — the
-// R1 Creations SDK only documents one persistence mechanism, creationStorage
-// (plain/secure, both base64-string key-value), and nothing about IndexedDB.
-// Whatever sandbox the device's webview runs in evidently doesn't carry
-// IndexedDB across sessions the way creationStorage is guaranteed to, so
-// video blobs are now stored the same way as everything else: base64
-// through creationStorage.plain (or localStorage off-device), one key per
-// video. There's no documented size cap, but on-device storage for a
-// plugin is finite, so a save that fails (quota, etc.) is caught and
-// reported instead of silently vanishing like before.
-function videoStorageKey(id) {
-  return `video_${id}`;
+// This went through two earlier designs that both failed on-device:
+// IndexedDB (never came back on reopen — the R1 SDK only documents
+// creationStorage as persistent, nothing about IndexedDB surviving in
+// whatever sandbox the webview runs in), then a single creationStorage.plain
+// value per video (~350-400KB as a btoa'd string even for a small ~0.2MB
+// clip) — which still corrupted on readback ("atob: string is not correctly
+// encoded"). A 0.2MB clip is nowhere near any storage quota, which points at
+// the storage bridge itself having a much smaller per-value size limit than
+// that — plausible for a channel meant for small preference strings. So the
+// payload is now split into small chunks, each written and read back as its
+// own creationStorage.plain key, keeping every individual call small
+// regardless of total video size.
+const VIDEO_CHUNK_SIZE = 8000; // conservative — comfortably under any likely per-value limit
+
+function videoChunkKey(id, part) {
+  return `video_${id}_${part}`;
 }
-// Same wrap/unwrap pattern as saveGallery/loadGallery above: the R1 SDK
-// docs require every value passed to creationStorage.plain to itself be
-// Base64-encoded first (`btoa(JSON.stringify(...))` in, `JSON.parse(atob(...))`
-// out). This file's earlier version skipped that outer encoding step for
-// video — passing a raw JSON string straight to setItem/getItem instead —
-// which is exactly what an "atob: string is not correctly encoded" failure
-// on readback points to: the un-wrapped payload was getting corrupted
-// somewhere in the storage bridge's round trip.
-async function saveVideoBlob(id, blob, mime) {
-  const base64 = await blobToBase64(blob);
-  const key = videoStorageKey(id);
-  const payload = btoa(JSON.stringify({ mime, base64 }));
+
+async function storagePlainSet(key, value) {
   try {
     if (window.creationStorage && window.creationStorage.plain) {
-      await window.creationStorage.plain.setItem(key, payload);
-      return;
+      await window.creationStorage.plain.setItem(key, value);
+      return true;
     }
   } catch (e) { /* fall through to localStorage */ }
-  localStorage.setItem(key, payload);
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
-async function loadVideoBlob(id) {
-  const key = videoStorageKey(id);
-  let raw = null;
+async function storagePlainGet(key) {
   try {
     if (window.creationStorage && window.creationStorage.plain) {
-      raw = await window.creationStorage.plain.getItem(key);
+      const v = await window.creationStorage.plain.getItem(key);
+      if (v != null) return v;
     }
   } catch (e) { /* fall through to localStorage */ }
-  if (!raw) raw = localStorage.getItem(key);
-  if (!raw) return null;
-  const { mime, base64 } = JSON.parse(atob(raw));
-  return { blob: base64ToBlob(base64, mime), mime };
+  return localStorage.getItem(key);
 }
-async function deleteVideoBlob(id) {
-  const key = videoStorageKey(id);
+async function storagePlainRemove(key) {
   try {
     if (window.creationStorage && window.creationStorage.plain) {
       await window.creationStorage.plain.removeItem(key);
     }
   } catch (e) { /* ignore */ }
   localStorage.removeItem(key);
+}
+
+async function saveVideoBlob(id, blob, mime) {
+  const base64 = await blobToBase64(blob);
+  const payload = btoa(JSON.stringify({ mime, base64 }));
+  const chunkCount = Math.ceil(payload.length / VIDEO_CHUNK_SIZE);
+  for (let i = 0; i < chunkCount; i++) {
+    const chunk = payload.slice(i * VIDEO_CHUNK_SIZE, (i + 1) * VIDEO_CHUNK_SIZE);
+    const ok = await storagePlainSet(videoChunkKey(id, i), chunk);
+    // Read the chunk straight back too — catches corruption per-chunk,
+    // right where it happens, instead of only discovering it later as one
+    // big opaque atob failure on the reassembled payload.
+    const verify = ok ? await storagePlainGet(videoChunkKey(id, i)) : null;
+    if (!ok || verify !== chunk) {
+      throw new Error(`chunk ${i + 1}/${chunkCount} failed to write correctly`);
+    }
+  }
+  await storagePlainSet(videoChunkKey(id, 'count'), String(chunkCount));
+}
+
+async function loadVideoBlob(id) {
+  const countRaw = await storagePlainGet(videoChunkKey(id, 'count'));
+  if (!countRaw) return null;
+  const chunkCount = parseInt(countRaw, 10);
+  let payload = '';
+  for (let i = 0; i < chunkCount; i++) {
+    const chunk = await storagePlainGet(videoChunkKey(id, i));
+    if (chunk == null) return null;
+    payload += chunk;
+  }
+  const { mime, base64 } = JSON.parse(atob(payload));
+  return { blob: base64ToBlob(base64, mime), mime };
+}
+
+async function deleteVideoBlob(id) {
+  const countRaw = await storagePlainGet(videoChunkKey(id, 'count'));
+  const chunkCount = countRaw ? parseInt(countRaw, 10) : 0;
+  for (let i = 0; i < chunkCount; i++) await storagePlainRemove(videoChunkKey(id, i));
+  await storagePlainRemove(videoChunkKey(id, 'count'));
 }
 
 async function trimGallery(list) {
