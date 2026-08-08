@@ -26,18 +26,63 @@ html, body {
 #liveView, #reviewView, #galleryView {
   position: absolute;
   inset: 0;
+  background: #000;
 }
 
 .hidden { display: none !important; }
 
 #cam { display: none; }
 
-#preview, #resultVideo, #galleryVideo {
+#resultVideo, #galleryVideo {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   background: #000;
+}
+
+/* Live preview is inset from the black "camera back" body — full bleed
+   top/bottom, narrow bezels left/right for the printed text ring. */
+#preview {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 20px;
+  right: 20px;
+  width: auto;
+  height: auto;
+  display: block;
+  background: #000;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+/* Vertical branding text ring along the camera-back bezels, like the
+   molded/printed text found on a real disposable camera's rear panel. */
+#bezelLeft, #bezelRight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+#bezelLeft { left: 0; }
+#bezelRight { right: 0; }
+#bezelLeft span, #bezelRight span {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.16);
+  text-shadow: 0 1px 0 rgba(255,255,255,.06), 0 -1px 0 rgba(0,0,0,.7);
+  transform: rotate(-90deg);
 }
 
 /* contain (not cover) so a captured photo's added white border is never cropped */
@@ -49,12 +94,22 @@ html, body {
   background: #000;
 }
 
-#filterLabel {
+/* Filter name + swatch read as a small plastic "window" set into the
+   camera back, like the film-type window on a real disposable camera. */
+#filmWindow {
   position: absolute;
-  top: 10px;
+  top: 7px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: 210px;
+  max-width: 200px;
+  padding: 4px 10px 6px;
+  background: rgba(8,8,8,.6);
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 2px 4px rgba(0,0,0,.5);
+  pointer-events: none;
+}
+
+#filterLabel {
   color: #fff;
   font-size: 10px;
   letter-spacing: 1px;
@@ -62,26 +117,21 @@ html, body {
   text-shadow: 0 1px 3px rgba(0,0,0,.8);
   text-align: center;
   white-space: nowrap;
-  pointer-events: none;
 }
 
 /* A little color-grade "swatch" under the filter name — a tiny piece of
    artwork standing in for each film stock's actual palette. */
 #filterSwatch {
-  position: absolute;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
   width: 46px;
   height: 8px;
+  margin: 3px auto 0;
   border-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.25);
-  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.25);
 }
 
 #recIndicator {
   position: absolute;
-  top: 38px;
+  top: 44px;
   left: 50%;
   transform: translateX(-50%);
   color: #ff4136;
@@ -97,6 +147,12 @@ html, body {
   50% { opacity: 0.35; }
 }
 
+/* Molded-plastic look shared by the buttons set into the camera back. */
+#rotateBtn, #galleryBtn, #switchBtn, #borderBtn {
+  background: radial-gradient(circle at 34% 30%, #3c3c3c, #0a0a0a 72%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.7);
+}
+
 #rotateBtn {
   position: absolute;
   top: 6px;
@@ -105,7 +161,6 @@ html, body {
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: rgba(0,0,0,.4);
   color: #fff;
   font-size: 15px;
   line-height: 28px;
@@ -121,7 +176,6 @@ html, body {
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: rgba(0,0,0,.4);
   color: #fff;
   font-size: 13px;
   line-height: 28px;
@@ -264,7 +318,6 @@ html, body {
 #switchBtn {
   border: none;
   border-radius: 50%;
-  background: rgba(255,255,255,.15);
   color: #fff;
   font-size: 12px;
 }
@@ -272,7 +325,6 @@ html, body {
 #borderBtn {
   border: none;
   border-radius: 50%;
-  background: rgba(255,255,255,.15);
   color: #fff;
   font-size: 16px;
 }

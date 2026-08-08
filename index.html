@@ -4,18 +4,23 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=240, initial-scale=1.0, user-scalable=no" />
 <title>Film Camera</title>
-<link rel="stylesheet" href="style.css?v=17" />
+<link rel="stylesheet" href="style.css?v=18" />
 </head>
 <body>
   <div id="app">
 
-    <!-- live camera view -->
+    <!-- live camera view, styled as the back of a disposable film camera -->
     <div id="liveView">
+      <div id="bezelLeft"><span>SHAHEER KNOWS · FILM CAMERA · 35mm ·</span></div>
+      <div id="bezelRight"><span>SHAHEER KNOWS · FILM CAMERA · 35mm ·</span></div>
+
       <canvas id="preview"></canvas>
       <video id="cam" playsinline muted autoplay></video>
 
-      <div id="filterLabel">Cinestill Night</div>
-      <div id="filterSwatch"></div>
+      <div id="filmWindow">
+        <div id="filterLabel">Cinestill Night</div>
+        <div id="filterSwatch"></div>
+      </div>
       <div id="recIndicator" class="hidden">&#9679; REC 0:00</div>
       <button id="rotateBtn" title="fix orientation">⟳</button>
       <button id="galleryBtn" title="view saved photos">▤</button>
@@ -59,6 +64,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=28"></script>
 </body>
 </html>
