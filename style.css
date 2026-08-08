@@ -65,9 +65,23 @@ html, body {
   pointer-events: none;
 }
 
+/* A little color-grade "swatch" under the filter name — a tiny piece of
+   artwork standing in for each film stock's actual palette. */
+#filterSwatch {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 8px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.25);
+  pointer-events: none;
+}
+
 #recIndicator {
   position: absolute;
-  top: 26px;
+  top: 38px;
   left: 50%;
   transform: translateX(-50%);
   color: #ff4136;

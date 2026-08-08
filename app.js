@@ -255,6 +255,45 @@ const FILTERS = {
     haze: false,
     blur: 0,
   },
+  'Infrared Dream': {
+    css: 'contrast(1.25) saturate(1.6) brightness(1.05) hue-rotate(130deg)',
+    blackLift: 'rgba(30,4,16,0.1)',
+    tint: [
+      { color: 'rgba(255,60,140,0.22)', blend: 'soft-light' },
+      { color: 'rgba(255,255,255,0.08)', blend: 'screen' },
+    ],
+    grain: 0.14,
+    vignette: { strength: 0.38, color: '40,4,20' },
+    lightLeak: false,
+    scratches: false,
+    halation: true,
+    haze: true,
+    blur: 0.1,
+  },
+  'Velvia Punch': {
+    css: 'contrast(1.35) saturate(1.85) brightness(1.02) hue-rotate(2deg)',
+    blackLift: 'rgba(10,14,6,0.05)',
+    tint: { color: 'rgba(20,200,120,0.1)', blend: 'soft-light' },
+    grain: 0.05,
+    vignette: { strength: 0.3, color: '6,14,6' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    haze: false,
+    blur: 0,
+  },
+  'Noir': {
+    css: 'contrast(1.5) saturate(0.08) brightness(0.96) hue-rotate(200deg)',
+    blackLift: 'rgba(10,14,22,0.06)',
+    tint: { color: 'rgba(40,60,90,0.1)', blend: 'soft-light' },
+    grain: 0.22,
+    vignette: { strength: 0.6, color: '0,4,10' },
+    lightLeak: false,
+    scratches: true,
+    halation: false,
+    haze: false,
+    blur: 0,
+  },
   'B&W Film': {
     css: 'contrast(1.4) saturate(0) brightness(1.0)',
     blackLift: 'rgba(20,20,20,0.14)',
@@ -270,7 +309,19 @@ const FILTERS = {
 };
 const FILTER_NAMES = Object.keys(FILTERS);
 let currentFilter = 'Cinestill Night';
-filterLabel.textContent = currentFilter;
+
+// A tiny gradient swatch under the filter name, built straight from that
+// filter's own tint/vignette colors — a quick piece of "artwork" standing
+// in for its actual palette, rather than a generic icon.
+const filterSwatch = document.getElementById('filterSwatch');
+function updateFilterUI() {
+  filterLabel.textContent = currentFilter;
+  const f = FILTERS[currentFilter];
+  const tints = Array.isArray(f.tint) ? f.tint : (f.tint ? [f.tint] : []);
+  const stops = [`rgba(${f.vignette.color},0.95)`, ...tints.map((t) => t.color), `rgba(${f.vignette.color},0.95)`];
+  filterSwatch.style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
+}
+updateFilterUI();
 
 function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -1236,7 +1287,7 @@ function switchFilter() {
   if (appView !== 'live') return;
   const idx = FILTER_NAMES.indexOf(currentFilter);
   currentFilter = FILTER_NAMES[(idx + 1) % FILTER_NAMES.length];
-  filterLabel.textContent = currentFilter;
+  updateFilterUI();
 }
 switchBtn.addEventListener('click', switchFilter);
 
