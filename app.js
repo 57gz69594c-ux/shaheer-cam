@@ -645,16 +645,25 @@ async function saveGallery(list) {
 function videoStorageKey(id) {
   return `video_${id}`;
 }
+// Same wrap/unwrap pattern as saveGallery/loadGallery above: the R1 SDK
+// docs require every value passed to creationStorage.plain to itself be
+// Base64-encoded first (`btoa(JSON.stringify(...))` in, `JSON.parse(atob(...))`
+// out). This file's earlier version skipped that outer encoding step for
+// video — passing a raw JSON string straight to setItem/getItem instead —
+// which is exactly what an "atob: string is not correctly encoded" failure
+// on readback points to: the un-wrapped payload was getting corrupted
+// somewhere in the storage bridge's round trip.
 async function saveVideoBlob(id, blob, mime) {
   const base64 = await blobToBase64(blob);
   const key = videoStorageKey(id);
+  const payload = btoa(JSON.stringify({ mime, base64 }));
   try {
     if (window.creationStorage && window.creationStorage.plain) {
-      await window.creationStorage.plain.setItem(key, JSON.stringify({ mime, base64 }));
+      await window.creationStorage.plain.setItem(key, payload);
       return;
     }
   } catch (e) { /* fall through to localStorage */ }
-  localStorage.setItem(key, JSON.stringify({ mime, base64 }));
+  localStorage.setItem(key, payload);
 }
 async function loadVideoBlob(id) {
   const key = videoStorageKey(id);
@@ -666,7 +675,7 @@ async function loadVideoBlob(id) {
   } catch (e) { /* fall through to localStorage */ }
   if (!raw) raw = localStorage.getItem(key);
   if (!raw) return null;
-  const { mime, base64 } = JSON.parse(raw);
+  const { mime, base64 } = JSON.parse(atob(raw));
   return { blob: base64ToBlob(base64, mime), mime };
 }
 async function deleteVideoBlob(id) {
