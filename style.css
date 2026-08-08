@@ -9,17 +9,20 @@ html, body {
   font-family: -apple-system, Helvetica, Arial, sans-serif;
 }
 
-/* EXPERIMENTAL: rotated 180deg instead of the usual 90. A 180deg rotation
-   doesn't swap width/height the way 90deg does, so this 282x240 box no
-   longer matches the 240x282 physical screen — expect ~21px cropped off
-   the left/right edges and ~21px of black bars top/bottom. */
+/* EXPERIMENTAL: no rotation (0deg) — the 4th orientation. Like the 180deg
+   test, this 282x240 box doesn't match the 240x282 physical screen without
+   a 90deg-type rotation, so expect ~21px cropped off the left/right edges
+   and ~21px of black bars top/bottom. The point of this test is purely to
+   check whether the UI/text reads right-side-up (not sideways) — the
+   cropping is a separate, fixable problem once we know the base
+   orientation is correct. */
 #app {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 282px;
   height: 240px;
-  transform: translate(-50%, -50%) rotate(180deg);
+  transform: translate(-50%, -50%) rotate(0deg);
   transform-origin: center center;
   overflow: hidden;
 }
