@@ -1027,7 +1027,13 @@ saveBtn.addEventListener('click', async () => {
   // for photos either, handing off to a native viewer that takes the whole
   // screen over outside our page instead — which matches "no back button"
   // being reported here for photos too, not just video. Gallery save only.
-  addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.7), currentFilter);
+  // Quality raised 0.7->0.85, kept deliberately short of "highest possible"
+  // — the whole photo gallery list is stored as one combined value, not
+  // chunked the way video is (see saveVideoBlob), so pushing this too far
+  // risks the exact same single-oversized-value corruption that was fixed
+  // for video. Restoring the 720p floor above already does more for
+  // visible quality than JPEG quality alone would.
+  addPhotoToGallery(resultCanvas.toDataURL('image/jpeg', 0.85), currentFilter);
   showToast('Saved to gallery', 1500);
 });
 
@@ -1111,14 +1117,13 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      // 1Mbps was too conservative — motion held up smoothly (confirming
-      // the recording-pipeline fix above was the real fix for lag), but
-      // 1Mbps for 720p visibly compresses into blocky/pixelated detail.
-      // With recording now costing nothing extra per frame, the ceiling
-      // here is genuinely just encoder throughput, not JS/canvas overhead
-      // — 3Mbps is still well under the 8Mbps that caused real lag before,
-      // but should noticeably clean up compression artifacts.
-      videoBitsPerSecond: 3000000,
+      // Raised again — 3Mbps was still visibly pixelated. The bigger fix
+      // this round is the resolution floor above (both photos and video
+      // were affected, which pointed at resolution, not just bitrate),
+      // but pushing bitrate up further too, still comfortably under the
+      // 8Mbps that caused actual lag, since recording costs nothing extra
+      // per frame now regardless of bitrate.
+      videoBitsPerSecond: 5000000,
       audioBitsPerSecond: 96000,
     });
   } catch (e) {
@@ -1493,9 +1498,18 @@ function showError(msg) {
 function buildCameraAttempts() {
   const facing = getFacing();
   const fr = { ideal: 24, max: 30 };
-  const res = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  // `min`, not just `ideal` — both photos and video were coming out
+  // pixelated, and photos never touch bitrate/encoding at all (a direct
+  // canvas capture of the camera frame), so the shared cause has to be
+  // upstream of both: the camera settling for a resolution well under
+  // 720p once the request dropped to `ideal`-only. `min` without a
+  // matching `max` sets a floor without forcing an exact-match ceiling,
+  // avoiding the unstable-negotiation risk `min`+`max` pinning had before
+  // while still refusing to silently accept something much smaller.
+  const res = { width: { ideal: 1280, min: 1280 }, height: { ideal: 720, min: 720 } };
   return [
     { video: { facingMode: { ideal: facing }, frameRate: fr, ...res } },
+    { video: { frameRate: fr, ...res } },
     { video: { facingMode: { ideal: facing } } },
     { video: true },
   ];
