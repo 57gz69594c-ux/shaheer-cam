@@ -128,6 +128,25 @@ let micStream = null;
 // `haze` = a soft mist/glow bloomed out of the highlights (not every stock
 // gets it — only the ones where that hazy, dreamy vintage glow is authentic).
 const FILTERS = {
+  // No film look at all — the raw camera capture, untouched. `raw: true`
+  // short-circuits both the photo (applyFilmLook) and video (drawFrameGraded)
+  // grading pipelines entirely, skipping every effect (including the
+  // universal per-frame flicker/jitter every other filter gets), so it's
+  // also the fastest/highest-quality option for video: nothing computed
+  // beyond the plain frame draw. First in the list — the default on open.
+  'R1': {
+    raw: true,
+    css: 'none',
+    blackLift: null,
+    tint: null,
+    grain: 0,
+    vignette: { strength: 0, color: '0,0,0' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    haze: false,
+    blur: 0,
+  },
   'Cinestill Night': {
     css: 'contrast(1.3) saturate(0.9) brightness(0.92) hue-rotate(6deg)',
     blackLift: 'rgba(4,10,22,0.24)',
@@ -293,28 +312,9 @@ const FILTERS = {
     haze: false,
     blur: 0,
   },
-  // No film look at all — the raw camera capture, untouched. `raw: true`
-  // short-circuits both the photo (applyFilmLook) and video (drawFrameGraded)
-  // grading pipelines entirely, skipping every effect (including the
-  // universal per-frame flicker/jitter every other filter gets) rather than
-  // just zeroing each one out, so this is also the fastest/highest-quality
-  // option for video — nothing computed beyond the plain frame draw.
-  'R1': {
-    raw: true,
-    css: 'none',
-    blackLift: null,
-    tint: null,
-    grain: 0,
-    vignette: { strength: 0, color: '0,0,0' },
-    lightLeak: false,
-    scratches: false,
-    halation: false,
-    haze: false,
-    blur: 0,
-  },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
-let currentFilter = 'Cinestill Night';
+let currentFilter = 'R1';
 
 // A tiny gradient swatch under the filter name, built straight from that
 // filter's own tint/vignette colors — a quick piece of "artwork" standing
