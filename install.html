@@ -22,10 +22,15 @@ p { font-size: 14px; color: rgba(255,255,255,0.45); margin-bottom: 32px; text-al
 <body>
 <h1>16/8mm Film Video</h1>
 <p>On your rabbit r1: open Creations &rarr; add via QR code &rarr; scan this.</p>
-<div id="qr"></div>
+<div id="qr"><img id="qr-img" width="260" height="260" alt="Install QR code" style="display:block;border-radius:12px;"></div>
 <div class="url" id="url-label"></div>
-<script src="https://unpkg.com/qr-code-styling@1.6.0/lib/qr-code-styling.js"></script>
 <script>
+  // A plain server-rendered QR image instead of a client-side JS library —
+  // the previous version depended on a third-party script (unpkg CDN)
+  // executing successfully in the phone's browser to draw the QR onto a
+  // canvas; when that script failed to load/run, the page rendered with an
+  // empty box and no error. An <img> pointing at a QR-generation API has no
+  // such dependency: if the request succeeds the QR just shows up.
   var creationUrl = 'https://57gz69594c-ux.github.io/shaheer-vintage-video/?v=1';
   document.getElementById('url-label').textContent = creationUrl;
 
@@ -37,15 +42,8 @@ p { font-size: 14px; color: rgba(255,255,255,0.45); margin-bottom: 32px; text-al
     themeColor: "#e2c084"
   });
 
-  var qrCode = new QRCodeStyling({
-    width: 260, height: 260,
-    data: qrData,
-    dotsOptions: { color: "#ffffff", type: "rounded" },
-    backgroundOptions: { color: "#0e0e10" },
-    cornersSquareOptions: { color: "#D2691E", type: "extra-rounded" },
-    cornersDotOptions: { color: "#D2691E" }
-  });
-  qrCode.append(document.getElementById('qr'));
+  document.getElementById('qr-img').src =
+    'https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=' + encodeURIComponent(qrData);
 </script>
 </body>
 </html>
