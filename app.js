@@ -487,6 +487,53 @@ function drawHaze(ctx, w, h) {
   ctx.restore();
 }
 
+// Cheap video-only versions of the two effects above, for use every
+// recorded frame. Blurring is expensive roughly in proportion to pixel
+// count, so instead of blurring at full frame resolution on a
+// freshly-allocated canvas (what the photo versions above do), this blurs
+// a small downscaled copy on a single reused canvas and stretches the
+// result back up — blur destroys fine detail either way, so downscaling
+// first costs a fraction as much and looks nearly identical once
+// composited back at low opacity.
+const GLOW_SCALE = 0.25;
+let glowCanvas = null;
+let glowCtx = null;
+function glowScratch(w, h) {
+  const gw = Math.max(1, Math.round(w * GLOW_SCALE));
+  const gh = Math.max(1, Math.round(h * GLOW_SCALE));
+  if (!glowCanvas) {
+    glowCanvas = document.createElement('canvas');
+    glowCtx = glowCanvas.getContext('2d');
+  }
+  if (glowCanvas.width !== gw || glowCanvas.height !== gh) {
+    glowCanvas.width = gw;
+    glowCanvas.height = gh;
+  }
+  return { gw, gh };
+}
+function drawHalationFast(ctx, w, h) {
+  const { gw, gh } = glowScratch(w, h);
+  glowCtx.filter = 'brightness(1.8) contrast(3) blur(1.5px)';
+  glowCtx.drawImage(ctx.canvas, 0, 0, gw, gh);
+  glowCtx.filter = 'none';
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.35;
+  ctx.drawImage(glowCanvas, 0, 0, gw, gh, 0, 0, w, h);
+  ctx.restore();
+}
+function drawHazeFast(ctx, w, h) {
+  const { gw, gh } = glowScratch(w, h);
+  glowCtx.filter = 'brightness(1.5) blur(2px)';
+  glowCtx.drawImage(ctx.canvas, 0, 0, gw, gh);
+  glowCtx.filter = 'none';
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.22;
+  ctx.drawImage(glowCanvas, 0, 0, gw, gh, 0, 0, w, h);
+  ctx.restore();
+}
+
 function drawLightLeak(ctx, w, h) {
   const corners = [
     [0, 0, w * 0.7, h * 0.7],
@@ -581,12 +628,8 @@ const VIDEO_JITTER_PX = 0.5; // ±0.5px gate-weave, subtle not shaky
 function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   const f = FILTERS[filterName];
   const flicker = 1 + (Math.random() * 2 - 1) * VIDEO_FLICKER_RANGE;
-  // No blur() here (unlike the photo path) — a CSS blur filter run on
-  // every recorded frame, especially combined with halation/haze's own
-  // blur passes below, is expensive enough on R1 hardware to tank the
-  // achievable frame rate. Softening is a nice-to-have for a single photo,
-  // not worth it 24-60 times a second.
-  ctx.filter = `${f.css} brightness(${flicker.toFixed(3)})`;
+  const css = `${f.css} brightness(${flicker.toFixed(3)})`;
+  ctx.filter = f.blur ? `${css} blur(${f.blur}px)` : css;
   const dx = (Math.random() - 0.5) * VIDEO_JITTER_PX;
   const dy = (Math.random() - 0.5) * VIDEO_JITTER_PX;
   ctx.drawImage(srcCanvas, dx, dy);
@@ -595,11 +638,11 @@ function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   if (f.tint) {
     (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
   }
-  // Halation/haze are photo-only (applyFilmLook) again — both allocate a
-  // fresh offscreen canvas and run a blur() filter, the single most
-  // expensive operations in the whole grading pipeline. Running that every
-  // recorded frame is what was tanking the frame rate; grain/vignette/tint
-  // still give video a graded, filmic look without that cost.
+  // Fast (downscaled-blur) versions of halation/haze — see drawHalationFast
+  // /drawHazeFast above for why: the full-res photo versions were the
+  // single biggest cost in the whole per-frame pipeline.
+  if (f.halation) drawHalationFast(ctx, w, h);
+  if (f.haze) drawHazeFast(ctx, w, h);
   ensureGrainTiles(w, h);
   const tile = grainTiles[Math.floor(Math.random() * grainTiles.length)];
   ctx.save();
