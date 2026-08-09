@@ -160,11 +160,11 @@ const FILTERS = {
     blur: 0,
   },
   'Polaroid': {
-    css: 'contrast(0.82) saturate(0.92) brightness(1.18) sepia(0.28) hue-rotate(-6deg)',
-    blackLift: 'rgba(52,42,26,0.32)',
+    css: 'contrast(0.9) saturate(1.5) brightness(1.15) sepia(0.12) hue-rotate(-4deg)',
+    blackLift: 'rgba(52,42,26,0.28)',
     tint: [
-      { color: 'rgba(255,222,164,0.24)', blend: 'soft-light' },
-      { color: 'rgba(255,255,255,0.08)', blend: 'screen' },
+      { color: 'rgba(255,200,120,0.16)', blend: 'soft-light' },
+      { color: 'rgba(255,255,255,0.06)', blend: 'screen' },
     ],
     grain: 0.16,
     vignette: { strength: 0.4, color: '40,28,14' },
@@ -1456,10 +1456,19 @@ function showError(msg) {
 // ask still gets used rather than failing outright.
 function buildCameraAttempts() {
   const facing = getFacing();
+  const fr = { ideal: 60, min: 24 };
+  // frameRate was previously only requested in the very first attempt —
+  // if that combined facingMode+frameRate constraint failed for ANY reason
+  // (not necessarily frameRate itself), every fallback after it dropped
+  // frameRate entirely, letting the browser pick its own (possibly
+  // conservative) default with no further attempt to ask for more.
+  // frameRate is now carried through every attempt except the last-resort
+  // bare fallback, so a facingMode-related failure doesn't also silently
+  // give up on frame rate.
   return [
-    { video: { facingMode: { ideal: facing }, frameRate: { ideal: 60, min: 24 } } },
+    { video: { facingMode: { ideal: facing }, frameRate: fr } },
+    { video: { frameRate: fr } },
     { video: { facingMode: { ideal: facing } } },
-    { video: { frameRate: { ideal: 60, min: 24 } } },
     { video: true },
   ];
 }
@@ -1479,6 +1488,16 @@ async function initCamera() {
       video.srcObject = stream;
       await video.play();
       errorBox.classList.add('hidden');
+      // Diagnostic: what the camera actually negotiated, not what we asked
+      // for. If frame rate still looks low with the raw/no-effects R1
+      // filter (which does almost no per-frame work at all), the ceiling
+      // is very likely here — the camera itself isn't delivering more
+      // frames per second, not anything our own drawing code is doing.
+      const vt = stream.getVideoTracks()[0];
+      const vs = vt && vt.getSettings ? vt.getSettings() : null;
+      if (vs) {
+        showToast(`Camera: ${vs.width || '?'}x${vs.height || '?'} @ ${vs.frameRate ? Math.round(vs.frameRate) : '?'}fps`, 3000);
+      }
       if (!renderLoopStarted) {
         renderLoopStarted = true;
         requestAnimationFrame(renderLoop);
