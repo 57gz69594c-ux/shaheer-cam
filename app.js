@@ -1371,13 +1371,15 @@ filmWindow.addEventListener('click', switchFilter);
 // facing reset mid-recording" finding (see the reverted isRecording guard
 // above) only ruled out a finger on the wheel — it didn't rule out the
 // motor itself. The camera flip physically spins a motor, and that motor
-// settling into position a couple seconds later is very likely generating
-// a phantom wheel-encoder tick that this code was dutifully treating as a
+// settling into position some time later is very likely generating a
+// phantom wheel-encoder tick that this code was dutifully treating as a
 // real scrollDown and flipping right back. Blocking re-flips for a short
 // window after a real one absorbs that phantom tick without needing to
-// tell it apart from a genuine one at the event level.
+// tell it apart from a genuine one at the event level. Was 2000ms — still
+// happening, meaning the motor's real settle time runs longer than that;
+// raised to 5000ms to give it more room.
 let lastFlipAt = 0;
-const FLIP_COOLDOWN_MS = 2000;
+const FLIP_COOLDOWN_MS = 5000;
 
 function flipToFacing(target) {
   if (getFacing() === target) return;
