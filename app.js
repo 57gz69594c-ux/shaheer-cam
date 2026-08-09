@@ -177,7 +177,7 @@ const FILTERS = {
     ],
     grain: 0.16,
     vignette: { strength: 0.4, color: '40,28,14' },
-    lightLeak: true,
+    lightLeak: false,
     scratches: false,
     halation: false,
     haze: true,
@@ -1111,15 +1111,15 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      // A sibling R1 creation (r1-video-creation, same hardware) found and
-      // documented that its default (resolution-scaled) bitrate produced
-      // files its encoder/decoder couldn't keep up with in real time, and
-      // fixed it by dropping to 600kbps. 1Mbps here is a bit more generous
-      // since capture now costs nothing extra per frame (see above), but
-      // stays well inside that same proven-safe range rather than pushing
-      // back toward the 2.5-8Mbps values that caused lag before.
-      videoBitsPerSecond: 1000000,
-      audioBitsPerSecond: 64000,
+      // 1Mbps was too conservative — motion held up smoothly (confirming
+      // the recording-pipeline fix above was the real fix for lag), but
+      // 1Mbps for 720p visibly compresses into blocky/pixelated detail.
+      // With recording now costing nothing extra per frame, the ceiling
+      // here is genuinely just encoder throughput, not JS/canvas overhead
+      // — 3Mbps is still well under the 8Mbps that caused real lag before,
+      // but should noticeably clean up compression artifacts.
+      videoBitsPerSecond: 3000000,
+      audioBitsPerSecond: 96000,
     });
   } catch (e) {
     showToast('Could not start recording: ' + e.message);
