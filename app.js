@@ -112,6 +112,15 @@ function emailPhoto(dataUrl, btn) {
 // offscreen canvas holding the current rotated, un-graded camera frame
 const rotCanvas = document.createElement('canvas');
 const rotCtx = rotCanvas.getContext('2d');
+// scratch canvas for the full rotated frame before it gets center-cropped
+// down to the screen's own aspect ratio (see drawRotatedFrame)
+const rotFullCanvas = document.createElement('canvas');
+const rotFullCtx = rotFullCanvas.getContext('2d');
+// R1 screen is 240x282 — every capture (live preview, photo, video) is
+// center-cropped to this exact aspect ratio so it fills the screen edge to
+// edge instead of showing the camera's native (mismatched) aspect ratio
+// letterboxed/pillarboxed.
+const SCREEN_ASPECT = 240 / 282;
 
 // the live camera MediaStream, kept around so it can be torn down on facing switch
 let cameraStream = null;
@@ -392,34 +401,55 @@ function isSelfieMode() {
 
 function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas, mirror) {
   const swapped = rotation === 90 || rotation === 270;
-  canvas.width = swapped ? sh : sw;
-  canvas.height = swapped ? sw : sh;
-  ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate((rotation * Math.PI) / 180);
-  if (mirror) ctx.scale(-1, 1);
-  ctx.drawImage(source, -sw / 2, -sh / 2, sw, sh);
-  ctx.restore();
+  const rw = swapped ? sh : sw;
+  const rh = swapped ? sw : sh;
+
+  // Full rotated frame first, at the camera's native (uncropped) size.
+  rotFullCanvas.width = rw;
+  rotFullCanvas.height = rh;
+  rotFullCtx.save();
+  rotFullCtx.translate(rw / 2, rh / 2);
+  rotFullCtx.rotate((rotation * Math.PI) / 180);
+  if (mirror) rotFullCtx.scale(-1, 1);
+  rotFullCtx.drawImage(source, -sw / 2, -sh / 2, sw, sh);
+  rotFullCtx.restore();
+
+  // Center-crop that down to exactly the screen's aspect ratio.
+  let cropW = rw;
+  let cropH = rh;
+  if (rw / rh > SCREEN_ASPECT) {
+    cropW = Math.round(rh * SCREEN_ASPECT);
+  } else {
+    cropH = Math.round(rw / SCREEN_ASPECT);
+  }
+  const cropX = Math.round((rw - cropW) / 2);
+  const cropY = Math.round((rh - cropH) / 2);
+
+  canvas.width = cropW;
+  canvas.height = cropH;
+  ctx.drawImage(rotFullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 }
 
 // ---------- live preview loop ----------
-// Draws the full per-frame grading (drawFrameGraded, defined below with the
-// video pipeline) directly into previewCanvas — not just the base CSS
-// filter like before. This is also, deliberately, the ONLY per-frame
-// rendering pipeline in the app now: video recording captures this same
-// canvas directly (see startRecording) instead of maintaining a second,
-// parallel canvas doing near-identical work. Running two full rAF-driven
-// drawing loops at once (one for preview, one for recording) was very
-// likely why recording was laggier than preview even with R1's near-zero
-// per-frame cost — the live preview was always fluid because it only ever
-// had the one loop. One unified loop means recording only costs whatever
-// MediaRecorder's own encoding adds, not a duplicated render pass too.
+// Deliberately lightweight: just the base CSS color filter, not the full
+// per-frame grading pipeline (grain/vignette/haze/halation/flicker/jitter).
+// This runs on every rAF tick, all the time, regardless of what screen is
+// open — a heavier version of this loop was tried (grading applied here
+// directly, recording captured straight from this canvas) but made the
+// whole app sluggish, since that heavy work was then running constantly in
+// the background even while just reviewing a photo, not only while
+// actually recording. Full grading is applied only where its cost is
+// either one-shot (applyFilmLook, at photo capture) or actually needed
+// (drawFrameGraded, only while isRecording is true — see the video
+// recording section).
 function renderLoop() {
   if (video.readyState >= 2 && video.videoWidth) {
     drawRotatedFrame(rotCtx, video, video.videoWidth, video.videoHeight, getRotation(), rotCanvas, isSelfieMode());
     previewCanvas.width = rotCanvas.width;
     previewCanvas.height = rotCanvas.height;
-    drawFrameGraded(previewCtx, rotCanvas, previewCanvas.width, previewCanvas.height, currentFilter);
+    previewCtx.filter = FILTERS[currentFilter].css;
+    previewCtx.drawImage(rotCanvas, 0, 0);
+    previewCtx.filter = 'none';
   }
   requestAnimationFrame(renderLoop);
 }
@@ -1049,9 +1079,12 @@ saveBtn.addEventListener('click', async () => {
 // fine for Save (a real file download), but addVideoToGallery already
 // handles the in-app-gallery storage failing gracefully if a clip is too
 // big for on-device storage.
+const recordCanvas = document.createElement('canvas');
+const recordCtx = recordCanvas.getContext('2d');
 let mediaRecorder = null;
 let recordedChunks = [];
 let isRecording = false;
+let recordRAF = null;
 let recordStartTime = 0;
 let recordTimerInterval = null;
 
@@ -1079,6 +1112,20 @@ function getCameraFrameRate() {
   return (settings && settings.frameRate) ? Math.round(settings.frameRate) : 30;
 }
 
+// Full grading applied here, per frame, but only while actually recording —
+// not on every idle preview frame (see renderLoop above for why that was a
+// mistake). This is the one place drawFrameGraded's cost is worth paying
+// continuously, since it's bounded to the length of a clip.
+function recordFrameLoop() {
+  if (!isRecording) return;
+  if (rotCanvas.width) {
+    recordCanvas.width = rotCanvas.width;
+    recordCanvas.height = rotCanvas.height;
+    drawFrameGraded(recordCtx, rotCanvas, recordCanvas.width, recordCanvas.height, currentFilter);
+  }
+  recordRAF = requestAnimationFrame(recordFrameLoop);
+}
+
 function updateRecTimer() {
   const secs = Math.floor((Date.now() - recordStartTime) / 1000);
   const mins = Math.floor(secs / 60);
@@ -1092,11 +1139,10 @@ function startRecording() {
     return;
   }
   const mimeType = pickVideoMimeType();
+  recordCanvas.width = rotCanvas.width;
+  recordCanvas.height = rotCanvas.height;
   const fps = getCameraFrameRate();
-  // Captures the same canvas already being drawn for the live preview —
-  // see the note on renderLoop above for why this replaced a separate,
-  // parallel record canvas doing near-duplicate work every frame.
-  const stream = previewCanvas.captureStream(fps);
+  const stream = recordCanvas.captureStream(fps);
   const audioTrack = micStream && micStream.getAudioTracks()[0];
   if (audioTrack) {
     stream.addTrack(audioTrack);
@@ -1134,12 +1180,14 @@ function startRecording() {
   shutterBtn.setAttribute('aria-label', 'stop recording');
   updateRecTimer();
   recordTimerInterval = setInterval(updateRecTimer, 500);
+  recordRAF = requestAnimationFrame(recordFrameLoop);
 }
 
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
   clearInterval(recordTimerInterval);
+  cancelAnimationFrame(recordRAF);
   recIndicator.classList.add('hidden');
   shutterBtn.classList.remove('recording');
   shutterBtn.setAttribute('aria-label', 'start recording');
@@ -1152,12 +1200,11 @@ function onRecordingStopped() {
   currentVideoExt = mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm';
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
-  // previewCanvas still holds the last graded frame — cheap, on-brand
-  // thumbnail, held in memory until Save actually writes it (and the video)
-  // to the gallery. Also used as the video's poster so it shows that frame
-  // instead of the browser's generic gray/play-button placeholder before
-  // playback starts.
-  currentVideoThumb = previewCanvas.width ? previewCanvas.toDataURL('image/jpeg', 0.6) : '';
+  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
+  // held in memory until Save actually writes it (and the video) to the gallery.
+  // Also used as the video's poster so it shows that frame instead of the
+  // browser's generic gray/play-button placeholder before playback starts.
+  currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
   resultVideo.poster = currentVideoThumb;
   resultVideo.src = currentVideoUrl;
   // Not autoplaying: on some embedded WebViews, autoplaying a non-native
