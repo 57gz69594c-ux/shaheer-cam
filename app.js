@@ -321,43 +321,6 @@ const FILTERS = {
     haze: false,
     blur: 0,
   },
-  // Named after and modeled on the real film gauges, not any particular
-  // app's proprietary recipe: 8mm is the classic amateur home-movie
-  // format — heaviest grain of any of these, warm degraded amateur-
-  // Kodachrome color, heavy vignette from cheap lenses, soft optics,
-  // light leaks and dust/scratches.
-  '8mm': {
-    css: 'contrast(1.1) saturate(0.7) brightness(1.08) sepia(0.35) hue-rotate(-6deg)',
-    blackLift: 'rgba(45,30,12,0.26)',
-    tint: [
-      { color: 'rgba(255,190,90,0.2)', blend: 'soft-light' },
-      { color: 'rgba(120,150,90,0.08)', blend: 'soft-light' },
-    ],
-    grain: 0.32,
-    vignette: { strength: 0.62, color: '30,18,6' },
-    lightLeak: true,
-    scratches: true,
-    halation: false,
-    haze: true,
-    blur: 0.55,
-  },
-  // 16mm is a step up in film gauge from 8mm — professional/documentary
-  // territory (news, indie film), noticeably finer grain, truer color,
-  // less vignette, sharper optics. Still filmic, but cleaner and more
-  // "cinematic" than 8mm's degraded amateur warmth rather than a minor
-  // variation on it.
-  '16mm': {
-    css: 'contrast(1.18) saturate(1.05) brightness(1.02) sepia(0.1) hue-rotate(-2deg)',
-    blackLift: 'rgba(25,20,15,0.14)',
-    tint: { color: 'rgba(255,210,170,0.1)', blend: 'soft-light' },
-    grain: 0.17,
-    vignette: { strength: 0.32, color: '15,12,8' },
-    lightLeak: false,
-    scratches: true,
-    halation: false,
-    haze: false,
-    blur: 0.15,
-  },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
 let currentFilter = 'R1';
