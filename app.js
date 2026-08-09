@@ -1109,10 +1109,11 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      // 20 Mbps — well above what 720p typically needs even at high
-      // quality, so this is effectively an unconstrained ceiling rather
-      // than a target the encoder is straining to hit.
-      videoBitsPerSecond: 20000000,
+      // Fixed at 8 megabits/sec (the standard unit for video bitrate — if
+      // 8 megaBYTEs/sec, i.e. 64 Mbps, was actually meant, say so and
+      // this changes; 8 Mbps is the far more typical reading and a very
+      // standard target for 720p).
+      videoBitsPerSecond: 8000000,
       audioBitsPerSecond: 128000,
     });
   } catch (e) {
@@ -1457,16 +1458,18 @@ function showError(msg) {
 // very likely why recorded video came out choppy. Falls back through
 // progressively looser constraints so a camera that can't do the frameRate
 // ask still gets used rather than failing outright.
+// Fixed target spec, the same for every filter (these settings don't vary
+// by filter at all — filters only affect per-frame grading, not the
+// underlying capture — R1 included): 720p, pinned with min AND max (not
+// just ideal) so the camera doesn't drift to something higher or lower;
+// same for frame rate, pinned to 30 rather than left open-ended.
 function buildCameraAttempts() {
   const facing = getFacing();
-  const fr = { ideal: 60, min: 24 };
-  // Hard floor at 720p — `min`, not just `ideal`, so a camera that can't
-  // meet it fails this attempt outright and falls through, rather than
-  // silently settling for something lower. Tried first (with facing+fps),
-  // then progressively relaxed: drop the resolution floor, then drop
-  // facingMode, then frameRate, ending at a bare fallback — so a failure
-  // on any one constraint doesn't also throw away the others.
-  const res = { width: { ideal: 1280, min: 1280 }, height: { ideal: 720, min: 720 } };
+  const fr = { ideal: 30, min: 30, max: 30 };
+  const res = {
+    width: { ideal: 1280, min: 1280, max: 1280 },
+    height: { ideal: 720, min: 720, max: 720 },
+  };
   return [
     { video: { facingMode: { ideal: facing }, frameRate: fr, ...res } },
     { video: { frameRate: fr, ...res } },
