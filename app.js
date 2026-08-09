@@ -1397,7 +1397,18 @@ function onScroll(delta) {
   // wasn't actually being touched when facing reset mid-recording, so
   // disabling it here wasn't the fix and just removed a control that's
   // wanted during recording too (front/back/front again, same as live view).
-  if (appView === 'live') flipToFacing(delta < 0 ? 'user' : 'environment');
+  if (appView === 'live') {
+    // Diagnostic: the cooldown fix (2s, then 5s) hasn't stopped the
+    // auto-revert, which means either the update hasn't reached the
+    // device, or the "phantom scroll tick" theory is simply wrong and
+    // something outside any DOM event is reverting the camera. This
+    // fires on every raw scroll event received in live view, cooldown or
+    // not, so it's visible whether a scroll event is actually happening
+    // right when the camera flips back, or whether it flips with no
+    // corresponding tick at all.
+    showToast(`Scroll tick: delta=${delta}, ${Date.now() - lastFlipAt}ms since last flip`, 2500);
+    flipToFacing(delta < 0 ? 'user' : 'environment');
+  }
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
