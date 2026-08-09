@@ -138,11 +138,11 @@ let micStream = null;
 // gets it — only the ones where that hazy, dreamy vintage glow is authentic).
 const FILTERS = {
   // No film look at all — the raw camera capture, untouched. `raw: true`
-  // short-circuits both the photo (applyFilmLook) and video (drawFrameGraded)
-  // grading pipelines entirely, skipping every effect (including the
-  // universal per-frame flicker/jitter every other filter gets), so it's
-  // also the fastest/highest-quality option for video: nothing computed
-  // beyond the plain frame draw. First in the list — the default on open.
+  // short-circuits the photo grading pipeline (applyFilmLook) entirely.
+  // Video never carries any baked-in grade regardless of filter (see
+  // startRecording), so `raw` has no separate video-side effect to skip —
+  // just the CSS color filter applied at playback, which is 'none' here.
+  // First in the list — the default on open.
   'R1': {
     raw: true,
     css: 'none',
@@ -373,11 +373,17 @@ function base64ToBlob(base64, mime) {
 // camera frame needs a quarter turn to come out upright. Defaults to 90 but
 // is adjustable on-device (tap the rotate button) and persisted locally,
 // since it can't be verified against real hardware from here.
+// Cached in memory — read once at startup, not on every frame. getRotation
+// is called from renderLoop (every one of 24-60 frames/sec); hitting
+// localStorage that often for a value that only ever changes from a
+// button tap is pure waste on hardware this constrained.
+let cachedRotation = parseInt(localStorage.getItem('r1-rotation') || '90', 10);
 function getRotation() {
-  return parseInt(localStorage.getItem('r1-rotation') || '90', 10);
+  return cachedRotation;
 }
 function setRotation(deg) {
-  localStorage.setItem('r1-rotation', String(((deg % 360) + 360) % 360));
+  cachedRotation = ((deg % 360) + 360) % 360;
+  localStorage.setItem('r1-rotation', String(cachedRotation));
 }
 rotateBtn.addEventListener('click', () => setRotation(getRotation() + 90));
 
@@ -389,24 +395,43 @@ rotateBtn.addEventListener('click', () => setRotation(getRotation() + 90));
 // rather than an error if only one camera is ever exposed. What always
 // works, regardless of hardware, is mirroring the frame — the thing that
 // actually makes a selfie look right once the lens is facing you.
+// Same caching reasoning as cachedRotation above — isSelfieMode runs every
+// frame too.
+let cachedFacing = localStorage.getItem('r1-facing') || 'environment';
 function getFacing() {
-  return localStorage.getItem('r1-facing') || 'environment';
+  return cachedFacing;
 }
 function setFacing(v) {
+  cachedFacing = v;
   localStorage.setItem('r1-facing', v);
 }
 function isSelfieMode() {
-  return getFacing() === 'user';
+  return cachedFacing === 'user';
 }
+
+// Cached crop geometry — only recomputed when the rotated frame's own
+// dimensions change (facing/rotation-setting changes), not every call.
+// Single call site (renderLoop), so one shared cache is safe.
+let cropCacheRW = -1;
+let cropCacheRH = -1;
+let cropCacheW = 0;
+let cropCacheH = 0;
+let cropCacheX = 0;
+let cropCacheY = 0;
 
 function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas, mirror) {
   const swapped = rotation === 90 || rotation === 270;
   const rw = swapped ? sh : sw;
   const rh = swapped ? sw : sh;
 
-  // Full rotated frame first, at the camera's native (uncropped) size.
-  rotFullCanvas.width = rw;
-  rotFullCanvas.height = rh;
+  // Setting canvas.width/height reallocates its backing buffer even when
+  // assigned the same value it already holds — real cost on every one of
+  // 24-60 frames/sec if done unconditionally, for dimensions that in
+  // practice only change on a facing flip or rotation-setting change.
+  if (rotFullCanvas.width !== rw || rotFullCanvas.height !== rh) {
+    rotFullCanvas.width = rw;
+    rotFullCanvas.height = rh;
+  }
   rotFullCtx.save();
   rotFullCtx.translate(rw / 2, rh / 2);
   rotFullCtx.rotate((rotation * Math.PI) / 180);
@@ -414,39 +439,42 @@ function drawRotatedFrame(ctx, source, sw, sh, rotation, canvas, mirror) {
   rotFullCtx.drawImage(source, -sw / 2, -sh / 2, sw, sh);
   rotFullCtx.restore();
 
-  // Center-crop that down to exactly the screen's aspect ratio.
-  let cropW = rw;
-  let cropH = rh;
-  if (rw / rh > SCREEN_ASPECT) {
-    cropW = Math.round(rh * SCREEN_ASPECT);
-  } else {
-    cropH = Math.round(rw / SCREEN_ASPECT);
+  if (rw !== cropCacheRW || rh !== cropCacheRH) {
+    cropCacheRW = rw;
+    cropCacheRH = rh;
+    cropCacheW = rw;
+    cropCacheH = rh;
+    if (rw / rh > SCREEN_ASPECT) {
+      cropCacheW = Math.round(rh * SCREEN_ASPECT);
+    } else {
+      cropCacheH = Math.round(rw / SCREEN_ASPECT);
+    }
+    cropCacheX = Math.round((rw - cropCacheW) / 2);
+    cropCacheY = Math.round((rh - cropCacheH) / 2);
   }
-  const cropX = Math.round((rw - cropW) / 2);
-  const cropY = Math.round((rh - cropH) / 2);
 
-  canvas.width = cropW;
-  canvas.height = cropH;
-  ctx.drawImage(rotFullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  if (canvas.width !== cropCacheW || canvas.height !== cropCacheH) {
+    canvas.width = cropCacheW;
+    canvas.height = cropCacheH;
+  }
+  ctx.drawImage(rotFullCanvas, cropCacheX, cropCacheY, cropCacheW, cropCacheH, 0, 0, cropCacheW, cropCacheH);
 }
 
 // ---------- live preview loop ----------
-// Deliberately lightweight: just the base CSS color filter, not the full
-// per-frame grading pipeline (grain/vignette/haze/halation/flicker/jitter).
-// This runs on every rAF tick, all the time, regardless of what screen is
-// open — a heavier version of this loop was tried (grading applied here
-// directly, recording captured straight from this canvas) but made the
-// whole app sluggish, since that heavy work was then running constantly in
-// the background even while just reviewing a photo, not only while
-// actually recording. Full grading is applied only where its cost is
-// either one-shot (applyFilmLook, at photo capture) or actually needed
-// (drawFrameGraded, only while isRecording is true — see the video
-// recording section).
+// Deliberately lightweight: just the base CSS color filter, not a full
+// per-frame grading pipeline (grain/vignette/haze/halation) — that heavier
+// version was tried directly in this loop and made the whole app sluggish,
+// running constantly in the background even while just reviewing a photo,
+// not bounded to anything. This same canvas is also what video recording
+// captures directly (see startRecording) — full grading stays photo-only,
+// a one-shot cost at capture time (applyFilmLook) where it doesn't matter.
 function renderLoop() {
   if (video.readyState >= 2 && video.videoWidth) {
     drawRotatedFrame(rotCtx, video, video.videoWidth, video.videoHeight, getRotation(), rotCanvas, isSelfieMode());
-    previewCanvas.width = rotCanvas.width;
-    previewCanvas.height = rotCanvas.height;
+    if (previewCanvas.width !== rotCanvas.width || previewCanvas.height !== rotCanvas.height) {
+      previewCanvas.width = rotCanvas.width;
+      previewCanvas.height = rotCanvas.height;
+    }
     previewCtx.filter = FILTERS[currentFilter].css;
     previewCtx.drawImage(rotCanvas, 0, 0);
     previewCtx.filter = 'none';
@@ -545,53 +573,6 @@ function drawHaze(ctx, w, h) {
   ctx.restore();
 }
 
-// Cheap video-only versions of the two effects above, for use every
-// recorded frame. Blurring is expensive roughly in proportion to pixel
-// count, so instead of blurring at full frame resolution on a
-// freshly-allocated canvas (what the photo versions above do), this blurs
-// a small downscaled copy on a single reused canvas and stretches the
-// result back up — blur destroys fine detail either way, so downscaling
-// first costs a fraction as much and looks nearly identical once
-// composited back at low opacity.
-const GLOW_SCALE = 0.25;
-let glowCanvas = null;
-let glowCtx = null;
-function glowScratch(w, h) {
-  const gw = Math.max(1, Math.round(w * GLOW_SCALE));
-  const gh = Math.max(1, Math.round(h * GLOW_SCALE));
-  if (!glowCanvas) {
-    glowCanvas = document.createElement('canvas');
-    glowCtx = glowCanvas.getContext('2d');
-  }
-  if (glowCanvas.width !== gw || glowCanvas.height !== gh) {
-    glowCanvas.width = gw;
-    glowCanvas.height = gh;
-  }
-  return { gw, gh };
-}
-function drawHalationFast(ctx, w, h) {
-  const { gw, gh } = glowScratch(w, h);
-  glowCtx.filter = 'brightness(1.8) contrast(3) blur(1.5px)';
-  glowCtx.drawImage(ctx.canvas, 0, 0, gw, gh);
-  glowCtx.filter = 'none';
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = 0.35;
-  ctx.drawImage(glowCanvas, 0, 0, gw, gh, 0, 0, w, h);
-  ctx.restore();
-}
-function drawHazeFast(ctx, w, h) {
-  const { gw, gh } = glowScratch(w, h);
-  glowCtx.filter = 'brightness(1.5) blur(2px)';
-  glowCtx.drawImage(ctx.canvas, 0, 0, gw, gh);
-  glowCtx.filter = 'none';
-  ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = 0.22;
-  ctx.drawImage(glowCanvas, 0, 0, gw, gh, 0, 0, w, h);
-  ctx.restore();
-}
-
 function drawLightLeak(ctx, w, h) {
   const corners = [
     [0, 0, w * 0.7, h * 0.7],
@@ -658,62 +639,6 @@ function applyFilmLook(canvas, filterName) {
   if (f.halation) drawHalation(ctx, w, h);
   if (f.haze) drawHaze(ctx, w, h);
   drawGrain(ctx, w, h, f.grain);
-  drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
-  if (f.lightLeak) drawLightLeak(ctx, w, h);
-  if (f.scratches) drawScratches(ctx, w, h);
-}
-
-// ---------- lightweight per-frame grading for video (cached grain tiles —
-// generating fresh per-pixel noise every frame is too slow on R1 hardware) ----------
-let grainTiles = [];
-let grainTileKey = '';
-function ensureGrainTiles(w, h) {
-  const key = `${w}x${h}`;
-  if (grainTileKey === key && grainTiles.length) return;
-  grainTileKey = key;
-  grainTiles = [generateNoiseCanvas(w, h), generateNoiseCanvas(w, h), generateNoiseCanvas(w, h)];
-}
-
-// Every filter gets the same subtle projector-flicker + gate-weave treatment
-// (live preview and video both, since they now share one render pipeline —
-// see renderLoop) — this is what makes footage read as "shot on film"
-// rather than just a photo filter over live footage. Kept tiny on purpose:
-// this is cosmetic sub-pixel motion baked into the canvas frame content,
-// not a change to capture cadence, so captureStream() still runs at the
-// same fixed rate — no dropped frames, no frame-rate cost, just a faint
-// flicker/weave riding on top.
-const VIDEO_FLICKER_RANGE = 0.03; // ±3% brightness wobble per frame
-const VIDEO_JITTER_PX = 0.5; // ±0.5px gate-weave, subtle not shaky
-
-function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
-  const f = FILTERS[filterName];
-  if (f.raw) {
-    ctx.drawImage(srcCanvas, 0, 0, w, h);
-    return;
-  }
-  const flicker = 1 + (Math.random() * 2 - 1) * VIDEO_FLICKER_RANGE;
-  const css = `${f.css} brightness(${flicker.toFixed(3)})`;
-  ctx.filter = f.blur ? `${css} blur(${f.blur}px)` : css;
-  const dx = (Math.random() - 0.5) * VIDEO_JITTER_PX;
-  const dy = (Math.random() - 0.5) * VIDEO_JITTER_PX;
-  ctx.drawImage(srcCanvas, dx, dy);
-  ctx.filter = 'none';
-  if (f.blackLift) drawBlackLift(ctx, w, h, f.blackLift);
-  if (f.tint) {
-    (Array.isArray(f.tint) ? f.tint : [f.tint]).forEach((t) => drawTint(ctx, w, h, t.color, t.blend));
-  }
-  // Fast (downscaled-blur) versions of halation/haze — see drawHalationFast
-  // /drawHazeFast above for why: the full-res photo versions were the
-  // single biggest cost in the whole per-frame pipeline.
-  if (f.halation) drawHalationFast(ctx, w, h);
-  if (f.haze) drawHazeFast(ctx, w, h);
-  ensureGrainTiles(w, h);
-  const tile = grainTiles[Math.floor(Math.random() * grainTiles.length)];
-  ctx.save();
-  ctx.globalAlpha = f.grain;
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.drawImage(tile, 0, 0);
-  ctx.restore();
   drawVignette(ctx, w, h, f.vignette.strength, f.vignette.color);
   if (f.lightLeak) drawLightLeak(ctx, w, h);
   if (f.scratches) drawScratches(ctx, w, h);
@@ -1079,24 +1004,24 @@ saveBtn.addEventListener('click', async () => {
 // fine for Save (a real file download), but addVideoToGallery already
 // handles the in-app-gallery storage failing gracefully if a clip is too
 // big for on-device storage.
-const recordCanvas = document.createElement('canvas');
-const recordCtx = recordCanvas.getContext('2d');
 let mediaRecorder = null;
 let recordedChunks = [];
 let isRecording = false;
-let recordRAF = null;
 let recordStartTime = 0;
 let recordTimerInterval = null;
 
+// h264/mp4 first — generally hardware-decoded/encoded on more devices than
+// vp8/vp9, which are often software-only. Confirmed against a sibling R1
+// creation (r1-video-creation) built for this same hardware, which found
+// this ordering meaningfully more reliable in real-time use.
 function pickVideoMimeType() {
   if (!window.MediaRecorder) return '';
   const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
+    'video/mp4;codecs=h264',
     'video/mp4',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/webm',
   ];
   for (const c of candidates) {
     if (MediaRecorder.isTypeSupported(c)) return c;
@@ -1109,21 +1034,7 @@ function pickVideoMimeType() {
 function getCameraFrameRate() {
   const track = cameraStream && cameraStream.getVideoTracks()[0];
   const settings = track && track.getSettings ? track.getSettings() : null;
-  return (settings && settings.frameRate) ? Math.round(settings.frameRate) : 30;
-}
-
-// Full grading applied here, per frame, but only while actually recording —
-// not on every idle preview frame (see renderLoop above for why that was a
-// mistake). This is the one place drawFrameGraded's cost is worth paying
-// continuously, since it's bounded to the length of a clip.
-function recordFrameLoop() {
-  if (!isRecording) return;
-  if (rotCanvas.width) {
-    recordCanvas.width = rotCanvas.width;
-    recordCanvas.height = rotCanvas.height;
-    drawFrameGraded(recordCtx, rotCanvas, recordCanvas.width, recordCanvas.height, currentFilter);
-  }
-  recordRAF = requestAnimationFrame(recordFrameLoop);
+  return (settings && settings.frameRate) ? Math.round(settings.frameRate) : 24;
 }
 
 function updateRecTimer() {
@@ -1139,10 +1050,20 @@ function startRecording() {
     return;
   }
   const mimeType = pickVideoMimeType();
-  recordCanvas.width = rotCanvas.width;
-  recordCanvas.height = rotCanvas.height;
   const fps = getCameraFrameRate();
-  const stream = recordCanvas.captureStream(fps);
+  // Captures previewCanvas directly — the same canvas already being
+  // redrawn every frame for the live view regardless of recording state
+  // (see renderLoop). Recording used to run a second, separate per-frame
+  // pipeline (a dedicated recordCanvas re-doing the rotate/crop/grade work
+  // from scratch) purely for capture, which is exactly the kind of
+  // duplicated real-time work that was making recording lag independently
+  // of resolution/bitrate. Reusing the preview canvas means recording adds
+  // zero marginal per-frame JS/canvas cost — MediaRecorder just reads
+  // frames from work that was already happening. The tradeoff: no
+  // grain/vignette/halation/haze on video (those stay photo-only, where a
+  // one-shot cost doesn't matter) — only the base color CSS filter, which
+  // previewCanvas already carries.
+  const stream = previewCanvas.captureStream(fps);
   const audioTrack = micStream && micStream.getAudioTracks()[0];
   if (audioTrack) {
     stream.addTrack(audioTrack);
@@ -1153,16 +1074,15 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      // Was 8 Mbps — too heavy for the R1's encoder to keep up with in real
-      // time (recording lag) and, worse, too much payload for the gallery
-      // save path: video blobs get split into ~8KB chunks each written and
-      // read back individually (see saveVideoBlob), so an 8Mbps clip means
-      // hundreds+ of slow sequential storage round-trips, which is very
-      // likely why saves were hanging/failing instead of reaching the
-      // gallery. 2.5 Mbps is still solid quality for the R1's small screen
-      // at a fraction of the encode cost and payload size.
-      videoBitsPerSecond: 2500000,
-      audioBitsPerSecond: 96000,
+      // A sibling R1 creation (r1-video-creation, same hardware) found and
+      // documented that its default (resolution-scaled) bitrate produced
+      // files its encoder/decoder couldn't keep up with in real time, and
+      // fixed it by dropping to 600kbps. 1Mbps here is a bit more generous
+      // since capture now costs nothing extra per frame (see above), but
+      // stays well inside that same proven-safe range rather than pushing
+      // back toward the 2.5-8Mbps values that caused lag before.
+      videoBitsPerSecond: 1000000,
+      audioBitsPerSecond: 64000,
     });
   } catch (e) {
     showToast('Could not start recording: ' + e.message);
@@ -1180,14 +1100,12 @@ function startRecording() {
   shutterBtn.setAttribute('aria-label', 'stop recording');
   updateRecTimer();
   recordTimerInterval = setInterval(updateRecTimer, 500);
-  recordRAF = requestAnimationFrame(recordFrameLoop);
 }
 
 function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
   clearInterval(recordTimerInterval);
-  cancelAnimationFrame(recordRAF);
   recIndicator.classList.add('hidden');
   shutterBtn.classList.remove('recording');
   shutterBtn.setAttribute('aria-label', 'start recording');
@@ -1200,13 +1118,19 @@ function onRecordingStopped() {
   currentVideoExt = mime.indexOf('mp4') !== -1 ? 'mp4' : 'webm';
   currentVideoBlob = new Blob(recordedChunks, { type: mime });
   currentVideoUrl = URL.createObjectURL(currentVideoBlob);
-  // recordCanvas still holds the last graded frame — cheap, on-brand thumbnail,
-  // held in memory until Save actually writes it (and the video) to the gallery.
-  // Also used as the video's poster so it shows that frame instead of the
-  // browser's generic gray/play-button placeholder before playback starts.
-  currentVideoThumb = recordCanvas.width ? recordCanvas.toDataURL('image/jpeg', 0.6) : '';
+  // previewCanvas still holds the last frame — cheap, on-brand thumbnail,
+  // held in memory until Save actually writes it (and the video) to the
+  // gallery. Also used as the video's poster so it shows that frame instead
+  // of the browser's generic gray/play-button placeholder before playback
+  // starts.
+  currentVideoThumb = previewCanvas.width ? previewCanvas.toDataURL('image/jpeg', 0.6) : '';
   resultVideo.poster = currentVideoThumb;
   resultVideo.src = currentVideoUrl;
+  // Video itself carries no baked-in grade (see startRecording) — the CSS
+  // filter is applied at playback instead, GPU-composited and effectively
+  // free, so the filter still visibly differs on video without costing
+  // anything during capture.
+  resultVideo.style.filter = FILTERS[currentFilter].css;
   // Not autoplaying: on some embedded WebViews, autoplaying a non-native
   // (controls-less) <video> can trigger a native fullscreen takeover that
   // sits outside the page entirely, which is indistinguishable from "no way
@@ -1271,6 +1195,10 @@ function renderGalleryPhoto() {
     // thumbnail saved at record time is exactly the "first frame preview"
     // that placeholder should be showing instead.
     galleryVideo.poster = item.thumbDataUrl || '';
+    // Same as the review screen: the filter is applied at playback (free,
+    // GPU-composited), using whichever filter was active when this clip
+    // was recorded — stored per-item, same as it already is for photos.
+    galleryVideo.style.filter = (FILTERS[item.filter] || FILTERS.R1).css;
     loadVideoBlob(item.id).then((rec) => {
       if (!rec || currentGalleryItem() !== item) return;
       galleryVideoObjUrl = URL.createObjectURL(rec.blob);
@@ -1516,30 +1444,21 @@ function showError(msg) {
 // once startRecording() reads micStream.getAudioTracks()[0].
 // facingMode is `ideal`, not `exact`, so on hardware with only one camera
 // this is simply ignored rather than throwing OverconstrainedError.
-// frameRate is requested explicitly (ideal 60, floor 24) — without it the
-// camera was evidently negotiating a low default fps on its own, which is
-// very likely why recorded video came out choppy. Falls back through
-// progressively looser constraints so a camera that can't do the frameRate
-// ask still gets used rather than failing outright.
-// Fixed target spec, the same for every filter (these settings don't vary
-// by filter at all — filters only affect per-frame grading, not the
-// underlying capture — R1 included): 720p, pinned with min AND max (not
-// just ideal) so the camera doesn't drift to something higher or lower;
-// same for frame rate, pinned to 30 rather than left open-ended.
+// frameRate/resolution target 720p/24-30fps, but as `ideal` only, not a
+// hard min/max floor — a stricter version of this (pinned min AND max)
+// forces exact-match negotiation, which a sibling R1 creation
+// (r1-video-creation, built for this same hardware) found can itself
+// strain the camera/encoder. `ideal` lets getUserMedia settle for the
+// closest mode the hardware actually supports smoothly, and this whole
+// object is still dropped entirely in the second fallback attempt below,
+// so a camera that can't do it at all still gets used rather than failing
+// outright.
 function buildCameraAttempts() {
   const facing = getFacing();
-  const fr = { ideal: 30, min: 30, max: 30 };
-  const res = {
-    width: { ideal: 1280, min: 1280, max: 1280 },
-    height: { ideal: 720, min: 720, max: 720 },
-  };
+  const fr = { ideal: 24, max: 30 };
+  const res = { width: { ideal: 1280 }, height: { ideal: 720 } };
   return [
     { video: { facingMode: { ideal: facing }, frameRate: fr, ...res } },
-    { video: { frameRate: fr, ...res } },
-    { video: { facingMode: { ideal: facing }, ...res } },
-    { video: { ...res } },
-    { video: { facingMode: { ideal: facing }, frameRate: fr } },
-    { video: { frameRate: fr } },
     { video: { facingMode: { ideal: facing } } },
     { video: true },
   ];
