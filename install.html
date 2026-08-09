@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Install Film Camera</title>
+<title>Install 16/8mm Film Video</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -20,21 +20,21 @@ p { font-size: 14px; color: rgba(255,255,255,0.45); margin-bottom: 32px; text-al
 </style>
 </head>
 <body>
-<h1>Film Camera</h1>
+<h1>16/8mm Film Video</h1>
 <p>On your rabbit r1: open Creations &rarr; add via QR code &rarr; scan this.</p>
 <div id="qr"></div>
 <div class="url" id="url-label"></div>
 <script src="https://unpkg.com/qr-code-styling@1.6.0/lib/qr-code-styling.js"></script>
 <script>
-  var creationUrl = 'https://57gz69594c-ux.github.io/shaheer-cam/?v=8';
+  var creationUrl = 'https://57gz69594c-ux.github.io/shaheer-vintage-video/?v=1';
   document.getElementById('url-label').textContent = creationUrl;
 
   var qrData = JSON.stringify({
-    title: "Film Camera",
+    title: "16/8mm Film Video",
     url: creationUrl,
-    description: "8 film-stock photo filters plus film-look video recording",
+    description: "Real-time 16mm & 8mm film-look video camera — grain, gate weave, halation, vignette, no light leaks",
     iconUrl: "",
-    themeColor: "#D2691E"
+    themeColor: "#e2c084"
   });
 
   var qrCode = new QRCodeStyling({
