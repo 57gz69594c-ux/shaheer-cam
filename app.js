@@ -1109,7 +1109,10 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      videoBitsPerSecond: 8000000,
+      // 20 Mbps — well above what 720p typically needs even at high
+      // quality, so this is effectively an unconstrained ceiling rather
+      // than a target the encoder is straining to hit.
+      videoBitsPerSecond: 20000000,
       audioBitsPerSecond: 128000,
     });
   } catch (e) {
@@ -1457,15 +1460,18 @@ function showError(msg) {
 function buildCameraAttempts() {
   const facing = getFacing();
   const fr = { ideal: 60, min: 24 };
-  // frameRate was previously only requested in the very first attempt —
-  // if that combined facingMode+frameRate constraint failed for ANY reason
-  // (not necessarily frameRate itself), every fallback after it dropped
-  // frameRate entirely, letting the browser pick its own (possibly
-  // conservative) default with no further attempt to ask for more.
-  // frameRate is now carried through every attempt except the last-resort
-  // bare fallback, so a facingMode-related failure doesn't also silently
-  // give up on frame rate.
+  // Hard floor at 720p — `min`, not just `ideal`, so a camera that can't
+  // meet it fails this attempt outright and falls through, rather than
+  // silently settling for something lower. Tried first (with facing+fps),
+  // then progressively relaxed: drop the resolution floor, then drop
+  // facingMode, then frameRate, ending at a bare fallback — so a failure
+  // on any one constraint doesn't also throw away the others.
+  const res = { width: { ideal: 1280, min: 1280 }, height: { ideal: 720, min: 720 } };
   return [
+    { video: { facingMode: { ideal: facing }, frameRate: fr, ...res } },
+    { video: { frameRate: fr, ...res } },
+    { video: { facingMode: { ideal: facing }, ...res } },
+    { video: { ...res } },
     { video: { facingMode: { ideal: facing }, frameRate: fr } },
     { video: { frameRate: fr } },
     { video: { facingMode: { ideal: facing } } },
