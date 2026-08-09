@@ -293,6 +293,25 @@ const FILTERS = {
     haze: false,
     blur: 0,
   },
+  // No film look at all — the raw camera capture, untouched. `raw: true`
+  // short-circuits both the photo (applyFilmLook) and video (drawFrameGraded)
+  // grading pipelines entirely, skipping every effect (including the
+  // universal per-frame flicker/jitter every other filter gets) rather than
+  // just zeroing each one out, so this is also the fastest/highest-quality
+  // option for video — nothing computed beyond the plain frame draw.
+  'R1': {
+    raw: true,
+    css: 'none',
+    blackLift: null,
+    tint: null,
+    grain: 0,
+    vignette: { strength: 0, color: '0,0,0' },
+    lightLeak: false,
+    scratches: false,
+    halation: false,
+    haze: false,
+    blur: 0,
+  },
 };
 const FILTER_NAMES = Object.keys(FILTERS);
 let currentFilter = 'Cinestill Night';
@@ -578,6 +597,7 @@ function drawScratches(ctx, w, h) {
 
 function applyFilmLook(canvas, filterName) {
   const f = FILTERS[filterName];
+  if (f.raw) return; // canvas already holds the untouched capture
   const w = canvas.width;
   const h = canvas.height;
   const ctx = canvas.getContext('2d');
@@ -627,6 +647,10 @@ const VIDEO_JITTER_PX = 0.5; // ±0.5px gate-weave, subtle not shaky
 
 function drawFrameGraded(ctx, srcCanvas, w, h, filterName) {
   const f = FILTERS[filterName];
+  if (f.raw) {
+    ctx.drawImage(srcCanvas, 0, 0, w, h);
+    return;
+  }
   const flicker = 1 + (Math.random() * 2 - 1) * VIDEO_FLICKER_RANGE;
   const css = `${f.css} brightness(${flicker.toFixed(3)})`;
   ctx.filter = f.blur ? `${css} blur(${f.blur}px)` : css;
