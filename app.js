@@ -1367,12 +1367,11 @@ function flipToFacing(target) {
 
 function onScroll(delta) {
   if (appView === 'gallery') { galleryNav(delta); return; }
-  // Guarded against isRecording: the wheel is easy to bump incidentally
-  // while holding the device to film handheld, and flipping facing
-  // mid-recording restarts the camera stream — which looked exactly like
-  // "camera flips back to the rear camera a couple seconds into recording."
-  // Lock facing for the duration of a clip instead.
-  if (appView === 'live' && !isRecording) flipToFacing(delta < 0 ? 'user' : 'environment');
+  // Deliberately NOT guarded against isRecording — confirmed the wheel
+  // wasn't actually being touched when facing reset mid-recording, so
+  // disabling it here wasn't the fix and just removed a control that's
+  // wanted during recording too (front/back/front again, same as live view).
+  if (appView === 'live') flipToFacing(delta < 0 ? 'user' : 'environment');
 }
 window.addEventListener('scrollUp', () => onScroll(-1));
 window.addEventListener('scrollDown', () => onScroll(1));
