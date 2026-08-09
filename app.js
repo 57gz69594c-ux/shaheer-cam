@@ -1107,12 +1107,16 @@ function startRecording() {
   try {
     mediaRecorder = new MediaRecorder(stream, {
       ...(mimeType ? { mimeType } : {}),
-      // Fixed at 8 megabits/sec (the standard unit for video bitrate — if
-      // 8 megaBYTEs/sec, i.e. 64 Mbps, was actually meant, say so and
-      // this changes; 8 Mbps is the far more typical reading and a very
-      // standard target for 720p).
-      videoBitsPerSecond: 8000000,
-      audioBitsPerSecond: 128000,
+      // Was 8 Mbps — too heavy for the R1's encoder to keep up with in real
+      // time (recording lag) and, worse, too much payload for the gallery
+      // save path: video blobs get split into ~8KB chunks each written and
+      // read back individually (see saveVideoBlob), so an 8Mbps clip means
+      // hundreds+ of slow sequential storage round-trips, which is very
+      // likely why saves were hanging/failing instead of reaching the
+      // gallery. 2.5 Mbps is still solid quality for the R1's small screen
+      // at a fraction of the encode cost and payload size.
+      videoBitsPerSecond: 2500000,
+      audioBitsPerSecond: 96000,
     });
   } catch (e) {
     showToast('Could not start recording: ' + e.message);
@@ -1383,8 +1387,23 @@ filmWindow.addEventListener('click', switchFilter);
 // wheel. The physical side button is the photo shutter — a separate
 // control from the on-screen video toggle, so photo and video never fight
 // over the same button.
+// Cooldown after a flip: the earlier "wheel wasn't actually touched when
+// facing reset mid-recording" finding (see the reverted isRecording guard
+// above) only ruled out a finger on the wheel — it didn't rule out the
+// motor itself. The camera flip physically spins a motor, and that motor
+// settling into position a couple seconds later is very likely generating
+// a phantom wheel-encoder tick that this code was dutifully treating as a
+// real scrollDown and flipping right back. Blocking re-flips for a short
+// window after a real one absorbs that phantom tick without needing to
+// tell it apart from a genuine one at the event level.
+let lastFlipAt = 0;
+const FLIP_COOLDOWN_MS = 2000;
+
 function flipToFacing(target) {
   if (getFacing() === target) return;
+  const now = Date.now();
+  if (now - lastFlipAt < FLIP_COOLDOWN_MS) return;
+  lastFlipAt = now;
   setFacing(target);
   showToast(target === 'user' ? 'Selfie mode' : 'Back camera', 1500);
   initCamera();
